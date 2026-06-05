@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class AdminCommand implements CommandExecutor, TabCompleter {
 
     private final EnthusiaEventsPlugin plugin;

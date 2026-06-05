@@ -50,6 +50,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class EventGameplayListener implements Listener {
 
     private static final List<Material> BLOCK_PARTY_COLORS = List.of(
@@ -114,6 +115,25 @@ public final class EventGameplayListener implements Listener {
         this.eventManager = eventManager;
         this.tickTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickActiveEvent, 20L, 20L);
         this.ctfParticleTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickCaptureTheFlagParticles, 1L, 1L);
+    }
+
+    public void shutdown() {
+        if (tickTask != null) {
+            tickTask.cancel();
+            tickTask = null;
+        }
+        if (ctfParticleTask != null) {
+            ctfParticleTask.cancel();
+            ctfParticleTask = null;
+        }
+        if (blockPartyTask != null) {
+            blockPartyTask.cancel();
+            blockPartyTask = null;
+        }
+        quakeRespawns.values().forEach(BukkitTask::cancel);
+        quakeRespawns.clear();
+        ctfRespawns.values().forEach(BukkitTask::cancel);
+        ctfRespawns.clear();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -487,7 +507,7 @@ public final class EventGameplayListener implements Listener {
         switch (session.definition().type()) {
             case HOT_POTATO -> tickHotPotato(session);
             case RED_LIGHT_GREEN_LIGHT -> tickRedLightGreenLight(session);
-            case BLOCK_PARTY -> ensureBlockPartyTask(session);
+            case BLOCK_PARTY -> ensureBlockPartyTask();
             case CAPTURE_THE_FLAG -> ensureCaptureTheFlagBlocks(session.selectedMap());
             case BEDWARS -> tickBedWarsGenerators(session);
             default -> {
@@ -519,7 +539,7 @@ public final class EventGameplayListener implements Listener {
 
         Map.Entry<String, CuboidRegion> areaCheckpoint = reachedRaceArea(map, checkLocation, type);
         if (areaCheckpoint != null) {
-            if (isFinishCheckpoint(type, areaCheckpoint.getKey())) {
+            if (isFinishCheckpoint(areaCheckpoint.getKey())) {
                 finishRace(player);
                 return;
             }
@@ -545,14 +565,14 @@ public final class EventGameplayListener implements Listener {
 
         for (Map.Entry<String, Location> checkpoint : orderedCheckpoints(map)) {
             String key = checkpoint.getKey().toLowerCase(Locale.ROOT);
-            boolean reached = isFinishCheckpoint(type, key)
+            boolean reached = isFinishCheckpoint(key)
                     ? sameBlock(checkpoint.getValue(), checkLocation)
                     : sameWorld(checkpoint.getValue(), checkLocation) && checkpoint.getValue().distanceSquared(checkLocation) <= (type == EventType.HORSE_RACE ? 16.0D : 4.0D);
             if (reached) {
                 if (key.equals(raceCheckpoint.get(player.getUniqueId()))) {
                     continue;
                 }
-                if (isFinishCheckpoint(type, key)) {
+                if (isFinishCheckpoint(key)) {
                     finishRace(player);
                     return;
                 }
@@ -644,7 +664,7 @@ public final class EventGameplayListener implements Listener {
 
         String carriedTeam = ctfCarriers.get(player.getUniqueId());
         if (carriedTeam != null && reachedFlagTeam(map, to) != null && reachedFlagTeam(map, to).equals(ownTeam)) {
-            captureFlag(session, map, player, ownTeam, carriedTeam);
+            captureFlag(session, player, ownTeam, carriedTeam);
         }
     }
 
@@ -712,7 +732,7 @@ public final class EventGameplayListener implements Listener {
         player.getInventory().setBoots(new org.bukkit.inventory.ItemStack(Material.CHAINMAIL_BOOTS));
     }
 
-    private void captureFlag(EventSession session, EventMap map, Player player, String ownTeam, String carriedTeam) {
+    private void captureFlag(EventSession session, Player player, String ownTeam, String carriedTeam) {
         if (ctfCarriers.containsValue(ownTeam) || ctfDroppedFlags.containsKey(ownTeam)) {
             sendActionBar(player, ChatColor.RED + "Your flag must be home to capture");
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.8F, 0.8F);
@@ -768,7 +788,7 @@ public final class EventGameplayListener implements Listener {
                 applyCaptureTheFlagCarrierArmor(player, carriedTeam);
                 String reached = reachedFlagTeam(map, player.getLocation());
                 if (ownTeam.equals(reached)) {
-                    captureFlag(session, map, player, ownTeam, carriedTeam);
+                    captureFlag(session, player, ownTeam, carriedTeam);
                 }
                 continue;
             }
@@ -832,7 +852,7 @@ public final class EventGameplayListener implements Listener {
 
     private String captureBar(String label, int progress, int max, ChatColor filledColor) {
         int segments = 18;
-        int filled = Math.max(0, Math.min(segments, (int) Math.round((progress / (double) max) * segments)));
+        int filled = Math.max(0, Math.min(segments, (int) Math.round(progress / (double) max * segments)));
         StringBuilder builder = new StringBuilder(ChatColor.GOLD + label + " ");
         builder.append(filledColor);
         for (int i = 0; i < filled; i++) {
@@ -874,11 +894,11 @@ public final class EventGameplayListener implements Listener {
         EventMap map = session.selectedMap();
         if (map != null) {
             tickCaptureTheFlag(session);
-            drawCaptureTheFlagParticles(session, map);
+            drawCaptureTheFlagParticles(map);
         }
     }
 
-    private void drawCaptureTheFlagParticles(EventSession session, EventMap map) {
+    private void drawCaptureTheFlagParticles(EventMap map) {
         for (String team : flagTeams(map)) {
             Location location = ctfDroppedFlags.get(team);
             if (location == null) {
@@ -897,7 +917,7 @@ public final class EventGameplayListener implements Listener {
             }
             Particle.DustOptions dust = new Particle.DustOptions(teamColor(team), 1.1F);
             for (int i = 0; i < 16; i++) {
-                double angle = (Math.PI * 2.0D * i) / 16.0D;
+                double angle = Math.PI * 2.0D * i / 16.0D;
                 location.getWorld().spawnParticle(Particle.DUST,
                         location.getX() + Math.cos(angle) * 1.35D,
                         location.getY() + 0.25D,
@@ -1022,7 +1042,7 @@ public final class EventGameplayListener implements Listener {
     }
 
     private BlockFace yawToBlockFace(float yaw) {
-        int index = Math.round((((yaw % 360.0F) + 360.0F) % 360.0F) / 22.5F) & 0xF;
+        int index = Math.round(((yaw % 360.0F) + 360.0F) % 360.0F / 22.5F) & 0xF;
         return switch (index) {
             case 0 -> BlockFace.SOUTH;
             case 1 -> BlockFace.SOUTH_SOUTH_WEST;
@@ -1343,7 +1363,7 @@ public final class EventGameplayListener implements Listener {
         }
     }
 
-    private void ensureBlockPartyTask(EventSession session) {
+    private void ensureBlockPartyTask() {
         if (blockPartyTask != null && !blockPartyTask.isCancelled()) {
             return;
         }
@@ -1713,13 +1733,6 @@ public final class EventGameplayListener implements Listener {
         return nearest;
     }
 
-    private boolean hasReachedPoint(EventMap map, String key, Location location) {
-        Location point = map.points().get(key);
-        return point != null && location != null && point.getWorld() != null && location.getWorld() != null
-                && point.getWorld().getUID().equals(location.getWorld().getUID())
-                && point.distanceSquared(location) <= 4.0D;
-    }
-
     private String reachedFlagTeam(EventMap map, Location location) {
         for (Map.Entry<String, Location> entry : map.points().entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);
@@ -2022,7 +2035,7 @@ public final class EventGameplayListener implements Listener {
         return key.toLowerCase(Locale.ROOT).replaceAll("\\D+", "");
     }
 
-    private boolean isFinishCheckpoint(EventType type, String key) {
+    private boolean isFinishCheckpoint(String key) {
         return key.toLowerCase(Locale.ROOT).startsWith("finish");
     }
 

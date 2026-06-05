@@ -41,7 +41,7 @@ public final class SetupCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length >= 1 && args[0].equalsIgnoreCase("save")) {
             if (setupWizard.session(player).isEmpty()) {
-                plugin.messages().send(player, "setup-failed", java.util.Map.of("reason", "no setup mode was active"));
+                plugin.messages().send(player, "setup-failed", Map.of("reason", "no setup mode was active"));
                 return true;
             }
             if (setupWizard.saveAndClose(player)) {
@@ -53,7 +53,7 @@ public final class SetupCommand implements CommandExecutor, TabCompleter {
             if (setupWizard.cancel(player)) {
                 plugin.messages().send(player, "setup-cancelled");
             } else {
-                plugin.messages().send(player, "setup-failed", java.util.Map.of("reason", "no setup mode was active"));
+                plugin.messages().send(player, "setup-failed", Map.of("reason", "no setup mode was active"));
             }
             return true;
         }
@@ -64,7 +64,7 @@ public final class SetupCommand implements CommandExecutor, TabCompleter {
             }
             plugin.getConfig().set("locations.waiting-hub", LocationCodec.encode(player.getLocation()));
             plugin.saveConfig();
-            plugin.messages().send(player, "setup-saved", java.util.Map.of("target", "waiting hub"));
+            plugin.messages().send(player, "setup-saved", Map.of("target", "waiting hub"));
             return true;
         }
         if (args.length >= 1 && args[0].equalsIgnoreCase("trophy")) {
@@ -74,7 +74,7 @@ public final class SetupCommand implements CommandExecutor, TabCompleter {
             }
             plugin.getConfig().set("locations.trophy-room", LocationCodec.encode(player.getLocation()));
             plugin.saveConfig();
-            plugin.messages().send(player, "setup-saved", java.util.Map.of("target", "trophy room"));
+            plugin.messages().send(player, "setup-saved", Map.of("target", "trophy room"));
             return true;
         }
         if (args.length < 1) {
@@ -85,7 +85,7 @@ public final class SetupCommand implements CommandExecutor, TabCompleter {
         try {
             type = EventType.valueOf(args[0].toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            plugin.messages().send(sender, "invalid-event", java.util.Map.of("event", args[0]));
+            plugin.messages().send(sender, "invalid-event", Map.of("event", args[0]));
             return true;
         }
         String mapId = args.length >= 2 ? args[1] : type.name().toLowerCase(Locale.ROOT);

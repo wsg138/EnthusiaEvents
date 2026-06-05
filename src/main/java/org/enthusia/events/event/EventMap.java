@@ -7,86 +7,87 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class EventMap {
 
-    private final EventType eventType;
-    private final String id;
-    private String worldName;
-    private CuboidRegion region;
-    private Location spectatorSpawn;
-    private final Map<String, Location> spawns = new LinkedHashMap<>();
-    private final Map<String, Location> checkpoints = new LinkedHashMap<>();
-    private final Map<String, Location> points = new LinkedHashMap<>();
-    private final Map<String, CuboidRegion> areas = new LinkedHashMap<>();
-    private final Map<Integer, List<Location>> chests = new LinkedHashMap<>();
-    private final Map<String, List<Location>> generators = new LinkedHashMap<>();
+    private final EventType mapEventType;
+    private final String mapId;
+    private String mapWorldName;
+    private CuboidRegion mapRegion;
+    private Location spectatorLocation;
+    private final Map<String, Location> spawnLocations = new LinkedHashMap<>();
+    private final Map<String, Location> checkpointLocations = new LinkedHashMap<>();
+    private final Map<String, Location> pointLocations = new LinkedHashMap<>();
+    private final Map<String, CuboidRegion> namedAreas = new LinkedHashMap<>();
+    private final Map<Integer, List<Location>> chestLocations = new LinkedHashMap<>();
+    private final Map<String, List<Location>> generatorLocations = new LinkedHashMap<>();
 
     public EventMap(EventType eventType, String id) {
-        this.eventType = eventType;
-        this.id = id;
+        this.mapEventType = eventType;
+        this.mapId = id;
     }
 
     public EventType eventType() {
-        return eventType;
+        return mapEventType;
     }
 
     public String id() {
-        return id;
+        return mapId;
     }
 
     public String worldName() {
-        return worldName;
+        return mapWorldName;
     }
 
     public void worldName(String worldName) {
-        this.worldName = worldName;
+        this.mapWorldName = worldName;
     }
 
     public CuboidRegion region() {
-        return region;
+        return mapRegion;
     }
 
     public void region(CuboidRegion region) {
-        this.region = region;
+        this.mapRegion = region;
     }
 
     public Location spectatorSpawn() {
-        return spectatorSpawn;
+        return spectatorLocation;
     }
 
     public void spectatorSpawn(Location spectatorSpawn) {
-        this.spectatorSpawn = spectatorSpawn;
+        this.spectatorLocation = spectatorSpawn;
     }
 
     public Map<String, Location> spawns() {
-        return spawns;
+        return spawnLocations;
     }
 
     public Map<String, Location> checkpoints() {
-        return checkpoints;
+        return checkpointLocations;
     }
 
     public Map<String, Location> points() {
-        return points;
+        return pointLocations;
     }
 
     public Map<String, CuboidRegion> areas() {
-        return areas;
+        return namedAreas;
     }
 
     public Map<Integer, List<Location>> chests() {
-        return chests;
+        return chestLocations;
     }
 
     public Map<String, List<Location>> generators() {
-        return generators;
+        return generatorLocations;
     }
 
     public void addChest(int tier, Location location) {
-        chests.computeIfAbsent(tier, ignored -> new ArrayList<>()).add(location);
+        chestLocations.computeIfAbsent(tier, ignored -> new ArrayList<>()).add(location);
     }
 
     public void addGenerator(String type, Location location) {
-        generators.computeIfAbsent(type.toLowerCase(java.util.Locale.ROOT), ignored -> new ArrayList<>()).add(location);
+        generatorLocations.computeIfAbsent(type.toLowerCase(java.util.Locale.ROOT), ignored -> new ArrayList<>()).add(location);
     }
 }

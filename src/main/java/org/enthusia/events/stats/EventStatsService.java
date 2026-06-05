@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class EventStatsService {
 
     private final EnthusiaEventsPlugin plugin;

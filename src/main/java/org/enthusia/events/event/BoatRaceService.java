@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class BoatRaceService implements Listener {
 
     private static final String BOAT_TAG = "enthusia_boat_race_boat";
@@ -223,13 +224,6 @@ public final class BoatRaceService implements Listener {
         if (finished) {
             eventManager.finishParticipant(player);
         }
-    }
-
-    private boolean isBoatRaceParticipant(Player player) {
-        EventSession session = eventManager.session();
-        return session != null
-                && session.definition().type() == EventType.BOAT_RACE
-                && session.participants().contains(player.getUniqueId());
     }
 
     private boolean isRaceMountParticipant(Player player) {

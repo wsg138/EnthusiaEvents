@@ -298,10 +298,9 @@ public final class EventRestrictionsListener implements Listener {
         EventSession session = eventManager.session();
         if (session != null
                 && session.definition().type() == EventType.CAPTURE_THE_FLAG
-                && session.participants().contains(player.getUniqueId())) {
-            if (event.getRawSlots().stream().anyMatch(this::isHelmetRawSlot)) {
-                event.setCancelled(true);
-            }
+                && session.participants().contains(player.getUniqueId())
+                && event.getRawSlots().stream().anyMatch(this::isHelmetRawSlot)) {
+            event.setCancelled(true);
         }
     }
 
@@ -319,18 +318,16 @@ public final class EventRestrictionsListener implements Listener {
             return;
         }
         EventSession session = eventManager.session();
-        if (session != null && session.phase() == EventPhase.PRESTART) {
-            if (event.getDamager() instanceof Player attacker
-                    && (eventManager.isEventPlayer(attacker.getUniqueId()) || eventManager.isEventPlayer(victim.getUniqueId()))) {
-                event.setCancelled(true);
-                return;
-            }
+        if (session != null && session.phase() == EventPhase.PRESTART
+                && event.getDamager() instanceof Player attacker
+                && (eventManager.isEventPlayer(attacker.getUniqueId()) || eventManager.isEventPlayer(victim.getUniqueId()))) {
+            event.setCancelled(true);
+            return;
         }
-        if (eventManager.isWaitingLocked() || eventManager.isTrophyLocked()) {
-            if (event.getDamager() instanceof Player attacker
-                    && (eventManager.isEventPlayer(attacker.getUniqueId()) || eventManager.isEventPlayer(victim.getUniqueId()))) {
-                event.setCancelled(true);
-            }
+        if ((eventManager.isWaitingLocked() || eventManager.isTrophyLocked())
+                && event.getDamager() instanceof Player attacker
+                && (eventManager.isEventPlayer(attacker.getUniqueId()) || eventManager.isEventPlayer(victim.getUniqueId()))) {
+            event.setCancelled(true);
         }
     }
 }

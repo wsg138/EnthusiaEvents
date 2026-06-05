@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class EventRegistry {
 
     private final EnthusiaEventsPlugin plugin;

@@ -12,6 +12,7 @@ import java.util.EnumMap;
 import java.util.Locale;
 import java.util.Map;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class EventConfigService {
 
     private final EnthusiaEventsPlugin plugin;

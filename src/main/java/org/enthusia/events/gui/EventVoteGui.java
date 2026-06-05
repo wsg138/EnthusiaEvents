@@ -46,7 +46,7 @@ public final class EventVoteGui {
             plugin.messages().send(player, "vote-empty");
             return;
         }
-        int size = Math.min(54, Math.max(27, ((choices.size() + 8) / 9) * 9));
+        int size = Math.min(54, Math.max(27, (choices.size() + 8) / 9 * 9));
         Inventory inventory = Bukkit.createInventory(new StartHolder(), size, "Start Event");
         int slot = 0;
         for (EventDefinition definition : choices) {

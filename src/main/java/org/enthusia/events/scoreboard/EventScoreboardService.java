@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class EventScoreboardService {
 
     private final EnthusiaEventsPlugin plugin;

@@ -18,7 +18,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class MapSetupService {
 
     private final EnthusiaEventsPlugin plugin;
@@ -161,7 +163,7 @@ public final class MapSetupService {
                 .toList();
     }
 
-    public EventMap quickSetup(EventType eventType, String id, org.bukkit.Location center, int radius) {
+    public EventMap quickSetup(EventType eventType, String id, Location center, int radius) {
         EventMap map = create(eventType, id, center.getWorld().getName());
         map.region(new CuboidRegion(
                 center.getWorld().getName(),
@@ -199,10 +201,10 @@ public final class MapSetupService {
         map.areas().replaceAll((key, area) -> reworld(area, targetWorld));
         map.chests().replaceAll((tier, locations) -> locations.stream()
                 .map(location -> reworld(location, targetWorld))
-                .collect(java.util.stream.Collectors.toCollection(ArrayList::new)));
+                .collect(Collectors.toCollection(ArrayList::new)));
         map.generators().replaceAll((type, locations) -> locations.stream()
                 .map(location -> reworld(location, targetWorld))
-                .collect(java.util.stream.Collectors.toCollection(ArrayList::new)));
+                .collect(Collectors.toCollection(ArrayList::new)));
         save();
     }
 
@@ -223,13 +225,13 @@ public final class MapSetupService {
                     yaml.set(path + ".region.max-z", map.region().maxZ());
                 }
                 yaml.set(path + ".spectator-spawn", LocationCodec.encode(map.spectatorSpawn()));
-                for (Map.Entry<String, org.bukkit.Location> spawn : map.spawns().entrySet()) {
+                for (Map.Entry<String, Location> spawn : map.spawns().entrySet()) {
                     yaml.set(path + ".spawns." + spawn.getKey(), LocationCodec.encode(spawn.getValue()));
                 }
-                for (Map.Entry<String, org.bukkit.Location> checkpoint : map.checkpoints().entrySet()) {
+                for (Map.Entry<String, Location> checkpoint : map.checkpoints().entrySet()) {
                     yaml.set(path + ".checkpoints." + checkpoint.getKey(), LocationCodec.encode(checkpoint.getValue()));
                 }
-                for (Map.Entry<String, org.bukkit.Location> point : map.points().entrySet()) {
+                for (Map.Entry<String, Location> point : map.points().entrySet()) {
                     yaml.set(path + ".points." + point.getKey(), LocationCodec.encode(point.getValue()));
                 }
                 for (Map.Entry<String, CuboidRegion> area : map.areas().entrySet()) {
@@ -241,15 +243,15 @@ public final class MapSetupService {
                     yaml.set(path + ".areas." + area.getKey() + ".max-y", area.getValue().maxY());
                     yaml.set(path + ".areas." + area.getKey() + ".max-z", area.getValue().maxZ());
                 }
-                for (Map.Entry<Integer, List<org.bukkit.Location>> chestEntry : map.chests().entrySet()) {
+                for (Map.Entry<Integer, List<Location>> chestEntry : map.chests().entrySet()) {
                     int index = 0;
-                    for (org.bukkit.Location location : chestEntry.getValue()) {
+                    for (Location location : chestEntry.getValue()) {
                         yaml.set(path + ".chests.tier" + chestEntry.getKey() + "." + index++, LocationCodec.encode(location));
                     }
                 }
-                for (Map.Entry<String, List<org.bukkit.Location>> generatorEntry : map.generators().entrySet()) {
+                for (Map.Entry<String, List<Location>> generatorEntry : map.generators().entrySet()) {
                     int index = 0;
-                    for (org.bukkit.Location location : generatorEntry.getValue()) {
+                    for (Location location : generatorEntry.getValue()) {
                         yaml.set(path + ".generators." + generatorEntry.getKey() + "." + index++, LocationCodec.encode(location));
                     }
                 }
@@ -333,7 +335,7 @@ public final class MapSetupService {
         }
     }
 
-    private void loadLocations(ConfigurationSection section, Map<String, org.bukkit.Location> target) {
+    private void loadLocations(ConfigurationSection section, Map<String, Location> target) {
         if (section == null) {
             return;
         }

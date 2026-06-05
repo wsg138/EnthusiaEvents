@@ -24,6 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class LootTableService {
 
     private final EnthusiaEventsPlugin plugin;
@@ -63,7 +64,7 @@ public final class LootTableService {
             if (eventSection == null) {
                 continue;
             }
-            Map<Integer, List<LootEntry>> tiers = entries.computeIfAbsent(type, ignored -> new java.util.LinkedHashMap<>());
+            Map<Integer, List<LootEntry>> tiers = entries.computeIfAbsent(type, ignored -> new LinkedHashMap<>());
             for (String tierKey : eventSection.getKeys(false)) {
                 int tier = parseTier(tierKey);
                 ConfigurationSection tierSection = eventSection.getConfigurationSection(tierKey);

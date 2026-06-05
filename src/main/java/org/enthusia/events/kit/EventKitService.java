@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class EventKitService {
 
     private final EnthusiaEventsPlugin plugin;

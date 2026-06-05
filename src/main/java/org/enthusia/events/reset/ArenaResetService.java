@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class ArenaResetService implements Listener {
 
     private final EnthusiaEventsPlugin plugin;

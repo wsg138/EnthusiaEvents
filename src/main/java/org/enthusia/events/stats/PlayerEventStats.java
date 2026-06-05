@@ -5,84 +5,85 @@ import org.enthusia.events.event.EventType;
 import java.util.EnumMap;
 import java.util.Map;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class PlayerEventStats {
 
-    private int eventsPlayed;
-    private int wins;
-    private int losses;
-    private int winStreak;
-    private int bestStreak;
-    private final Map<EventType, Integer> playedByEvent = new EnumMap<>(EventType.class);
-    private final Map<EventType, Integer> winsByEvent = new EnumMap<>(EventType.class);
-    private final Map<EventType, Integer> lossesByEvent = new EnumMap<>(EventType.class);
+    private int totalEventsPlayed;
+    private int totalWins;
+    private int totalLosses;
+    private int currentWinStreak;
+    private int highestWinStreak;
+    private final Map<EventType, Integer> eventPlayCounts = new EnumMap<>(EventType.class);
+    private final Map<EventType, Integer> eventWinCounts = new EnumMap<>(EventType.class);
+    private final Map<EventType, Integer> eventLossCounts = new EnumMap<>(EventType.class);
 
     public int eventsPlayed() {
-        return eventsPlayed;
+        return totalEventsPlayed;
     }
 
     public int wins() {
-        return wins;
+        return totalWins;
     }
 
     public int losses() {
-        return losses;
+        return totalLosses;
     }
 
     public int winStreak() {
-        return winStreak;
+        return currentWinStreak;
     }
 
     public int bestStreak() {
-        return bestStreak;
+        return highestWinStreak;
     }
 
     public Map<EventType, Integer> playedByEvent() {
-        return playedByEvent;
+        return eventPlayCounts;
     }
 
     public Map<EventType, Integer> winsByEvent() {
-        return winsByEvent;
+        return eventWinCounts;
     }
 
     public Map<EventType, Integer> lossesByEvent() {
-        return lossesByEvent;
+        return eventLossCounts;
     }
 
     public void recordParticipation(EventType type) {
-        eventsPlayed++;
-        playedByEvent.merge(type, 1, Integer::sum);
+        totalEventsPlayed++;
+        eventPlayCounts.merge(type, 1, Integer::sum);
     }
 
     public void recordWin(EventType type) {
-        wins++;
-        winStreak++;
-        bestStreak = Math.max(bestStreak, winStreak);
-        winsByEvent.merge(type, 1, Integer::sum);
+        totalWins++;
+        currentWinStreak++;
+        highestWinStreak = Math.max(highestWinStreak, currentWinStreak);
+        eventWinCounts.merge(type, 1, Integer::sum);
     }
 
     public void recordLoss(EventType type) {
-        losses++;
-        winStreak = 0;
-        lossesByEvent.merge(type, 1, Integer::sum);
+        totalLosses++;
+        currentWinStreak = 0;
+        eventLossCounts.merge(type, 1, Integer::sum);
     }
 
     public void loadTotals(int eventsPlayed, int wins, int losses, int winStreak, int bestStreak) {
-        this.eventsPlayed = eventsPlayed;
-        this.wins = wins;
-        this.losses = losses;
-        this.winStreak = winStreak;
-        this.bestStreak = bestStreak;
+        this.totalEventsPlayed = eventsPlayed;
+        this.totalWins = wins;
+        this.totalLosses = losses;
+        this.currentWinStreak = winStreak;
+        this.highestWinStreak = bestStreak;
     }
 
     public void loadPerEvent(EventType type, int played, int wins, int losses) {
         if (played > 0) {
-            playedByEvent.put(type, played);
+            eventPlayCounts.put(type, played);
         }
         if (wins > 0) {
-            winsByEvent.put(type, wins);
+            eventWinCounts.put(type, wins);
         }
         if (losses > 0) {
-            lossesByEvent.put(type, losses);
+            eventLossCounts.put(type, losses);
         }
     }
 }

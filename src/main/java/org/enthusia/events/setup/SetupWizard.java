@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class SetupWizard {
 
     private final EnthusiaEventsPlugin plugin;
@@ -789,8 +790,8 @@ public final class SetupWizard {
         }
     }
 
-    private <T> void removeLocationList(Map<T, java.util.List<Location>> locations, Location blockLocation, String label, List<String> removedNames) {
-        for (Map.Entry<T, java.util.List<Location>> entry : locations.entrySet()) {
+    private <T> void removeLocationList(Map<T, List<Location>> locations, Location blockLocation, String label, List<String> removedNames) {
+        for (Map.Entry<T, List<Location>> entry : locations.entrySet()) {
             int before = entry.getValue().size();
             entry.getValue().removeIf(location -> matchesClickedBlock(location, blockLocation));
             int removed = before - entry.getValue().size();
@@ -822,7 +823,7 @@ public final class SetupWizard {
         plugin.messages().send(player, "setup-region-saved", Map.of("map", map.id()));
     }
 
-    private void drawRegion(Player player, org.enthusia.events.event.CuboidRegion region) {
+    private void drawRegion(Player player, CuboidRegion region) {
         World world = player.getWorld();
         if (!world.getName().equals(region.worldName())) {
             return;

@@ -103,17 +103,17 @@ public final class EventManager {
         this.lootTableService = lootTableService;
     }
 
-    public synchronized List<EventDefinition> availableStartChoices() {
+    public List<EventDefinition> availableStartChoices() {
         return registry.all().stream()
                 .filter(definition -> !mapSetupService.usableMapsFor(definition.type()).isEmpty())
                 .toList();
     }
 
-    public synchronized boolean hasSession() {
+    public boolean hasSession() {
         return session != null;
     }
 
-    public synchronized boolean startScheduledVote() {
+    public boolean startScheduledVote() {
         if (session != null) {
             randomAvailableChoices().stream().findFirst().ifPresent(definition -> {
                 queue.add(definition);
@@ -132,7 +132,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized boolean startManualVote(CommandSender initiator, EventDefinition forced, boolean discountedRandom) {
+    public boolean startManualVote(CommandSender initiator, EventDefinition forced, boolean discountedRandom) {
         if (session != null) {
             return false;
         }
@@ -172,7 +172,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized String manualStartFailureReason(Player player, EventDefinition forced, boolean discountedRandom) {
+    public String manualStartFailureReason(Player player, EventDefinition forced, boolean discountedRandom) {
         if (session != null) {
             return "a " + session.definition().displayName() + " event is already running";
         }
@@ -211,7 +211,7 @@ public final class EventManager {
         this.boatRaceService = boatRaceService;
     }
 
-    public synchronized boolean startForcedEvent(EventType type) {
+    public boolean startForcedEvent(EventType type) {
         if (session != null) {
             return false;
         }
@@ -231,7 +231,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized String forcedStartFailureReason(EventType type) {
+    public String forcedStartFailureReason(EventType type) {
         if (session != null) {
             return "a " + session.definition().displayName() + " event is already running";
         }
@@ -244,7 +244,7 @@ public final class EventManager {
         return "start conditions were not met";
     }
 
-    public synchronized boolean startQuickTest(Player player, EventType type) {
+    public boolean startQuickTest(Player player, EventType type) {
         if (session != null) {
             return false;
         }
@@ -276,7 +276,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized boolean join(Player player) {
+    public boolean join(Player player) {
         if (session == null || (session.phase() != EventPhase.VOTE
                 && session.phase() != EventPhase.JOIN
                 && session.phase() != EventPhase.COUNTDOWN)) {
@@ -310,7 +310,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized boolean spectate(Player player) {
+    public boolean spectate(Player player) {
         if (session == null || (session.phase() != EventPhase.ACTIVE && session.phase() != EventPhase.TROPHY)) {
             return false;
         }
@@ -332,7 +332,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized boolean leave(Player player) {
+    public boolean leave(Player player) {
         if (session == null) {
             return false;
         }
@@ -354,7 +354,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized void finishParticipant(Player player) {
+    public void finishParticipant(Player player) {
         if (session == null || session.phase() != EventPhase.ACTIVE || !session.participants().remove(player.getUniqueId())) {
             return;
         }
@@ -375,7 +375,7 @@ public final class EventManager {
         }
     }
 
-    public synchronized void eliminateParticipant(Player player, String reason) {
+    public void eliminateParticipant(Player player, String reason) {
         if (session == null || session.phase() != EventPhase.ACTIVE || !session.participants().remove(player.getUniqueId())) {
             return;
         }
@@ -401,7 +401,7 @@ public final class EventManager {
         }
     }
 
-    public synchronized void messageEventPlayers(String message) {
+    public void messageEventPlayers(String message) {
         if (session == null) {
             return;
         }
@@ -413,14 +413,14 @@ public final class EventManager {
         }
     }
 
-    public synchronized List<UUID> activeParticipants() {
+    public List<UUID> activeParticipants() {
         if (session == null) {
             return List.of();
         }
         return List.copyOf(session.participants());
     }
 
-    public synchronized boolean restoreSnapshot(Player player) {
+    public boolean restoreSnapshot(Player player) {
         if (session != null) {
             session.participants().remove(player.getUniqueId());
             session.spectators().remove(player.getUniqueId());
@@ -444,7 +444,7 @@ public final class EventManager {
         return snapshotService.retryPendingOnlineRestores();
     }
 
-    public synchronized void handleQuit(Player player) {
+    public void handleQuit(Player player) {
         if (session == null) {
             return;
         }
@@ -466,7 +466,7 @@ public final class EventManager {
         }
     }
 
-    public synchronized void handleJoin(Player player) {
+    public void handleJoin(Player player) {
         if (snapshotService.hasUnrestoredSnapshot(player.getUniqueId()) && !isEventPlayer(player.getUniqueId())) {
             allowTeleport(player.getUniqueId());
             if (snapshotService.restore(player, false)) {
@@ -475,7 +475,7 @@ public final class EventManager {
         }
     }
 
-    public synchronized void castVote(Player player, EventType type) {
+    public void castVote(Player player, EventType type) {
         if (session == null || session.phase() != EventPhase.VOTE || !session.votes().containsKey(type)) {
             return;
         }
@@ -487,15 +487,15 @@ public final class EventManager {
         playConfiguredSound(player, "sounds.vote-cast");
     }
 
-    public synchronized EventSession session() {
+    public EventSession session() {
         return session;
     }
 
-    public synchronized Map<EventType, Integer> liveVotes() {
+    public Map<EventType, Integer> liveVotes() {
         return session == null ? Map.of() : new HashMap<>(session.votes());
     }
 
-    public synchronized void endActiveEvent(List<UUID> rankedPlayers) {
+    public void endActiveEvent(List<UUID> rankedPlayers) {
         if (session == null) {
             return;
         }
@@ -556,7 +556,7 @@ public final class EventManager {
         }, delayTicks);
     }
 
-    public synchronized void stop(String reason) {
+    public void stop(String reason) {
         cancelTask();
         cancelActiveTask();
         cancelPreStartTask();
@@ -574,7 +574,7 @@ public final class EventManager {
         kitService.clearSelections();
     }
 
-    public synchronized boolean advancePhase() {
+    public boolean advancePhase() {
         if (session == null) {
             return false;
         }
@@ -599,11 +599,11 @@ public final class EventManager {
         return false;
     }
 
-    public synchronized void queue(EventDefinition definition) {
+    public void queue(EventDefinition definition) {
         queue.add(definition);
     }
 
-    public synchronized boolean isEventPlayer(UUID uuid) {
+    public boolean isEventPlayer(UUID uuid) {
         return session != null && (session.participants().contains(uuid) || session.spectators().contains(uuid));
     }
 
@@ -611,25 +611,25 @@ public final class EventManager {
         return spawnLocked.contains(uuid);
     }
 
-    public synchronized boolean isWaitingLocked() {
+    public boolean isWaitingLocked() {
         return session != null && (session.phase() == EventPhase.JOIN || session.phase() == EventPhase.COUNTDOWN)
                 && plugin.getConfig().getBoolean("restrictions.lock-waiting-hub", true);
     }
 
-    public synchronized boolean isTrophyLocked() {
+    public boolean isTrophyLocked() {
         return session != null && session.phase() == EventPhase.TROPHY
                 && plugin.getConfig().getBoolean("restrictions.lock-trophy-room", true);
     }
 
-    public synchronized EventMap activeMap() {
+    public EventMap activeMap() {
         return session == null ? null : session.selectedMap();
     }
 
-    public synchronized Set<UUID> eventPlayers() {
+    public Set<UUID> eventPlayers() {
         return allEventPlayers();
     }
 
-    public synchronized String teamFor(UUID uuid) {
+    public String teamFor(UUID uuid) {
         if (session == null) {
             return "";
         }
@@ -647,7 +647,7 @@ public final class EventManager {
         runtimeScoreboardValues.put(key, value == null ? "" : value);
     }
 
-    public synchronized long activeSecondsRemaining() {
+    public long activeSecondsRemaining() {
         if (session == null || session.phase() != EventPhase.ACTIVE || activeEndsAtMillis <= 0L) {
             return 0L;
         }
@@ -683,7 +683,7 @@ public final class EventManager {
         return true;
     }
 
-    public synchronized String nextHourlyVoteLabel() {
+    public String nextHourlyVoteLabel() {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime next = now.plusHours(1).truncatedTo(ChronoUnit.HOURS);
         return next.toString().replace('T', ' ');
@@ -709,8 +709,8 @@ public final class EventManager {
     }
 
     private List<EventDefinition> randomAvailableChoices() {
-        List<EventDefinition> pool = new java.util.ArrayList<>(availableStartChoices());
-        List<EventDefinition> out = new java.util.ArrayList<>();
+        List<EventDefinition> pool = new ArrayList<>(availableStartChoices());
+        List<EventDefinition> out = new ArrayList<>();
         int amount = plugin.getConfig().getInt("events.vote-options", 5);
         while (!pool.isEmpty() && out.size() < amount) {
             out.add(pool.remove(ThreadLocalRandom.current().nextInt(pool.size())));
@@ -744,7 +744,7 @@ public final class EventManager {
         }, 20L, 20L);
     }
 
-    private synchronized void advanceToJoin() {
+    private void advanceToJoin() {
         if (session == null) {
             return;
         }
@@ -773,7 +773,7 @@ public final class EventManager {
         phaseTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickJoinCountdown, 20L, 20L);
     }
 
-    private synchronized void tickJoinCountdown() {
+    private void tickJoinCountdown() {
         if (session == null || (session.phase() != EventPhase.JOIN && session.phase() != EventPhase.COUNTDOWN)) {
             cancelTask();
             return;
@@ -1112,7 +1112,7 @@ public final class EventManager {
         }
     }
 
-    private synchronized void finishSession() {
+    private void finishSession() {
         if (session == null) {
             return;
         }
@@ -1539,7 +1539,7 @@ public final class EventManager {
         }
     }
 
-    public synchronized void remountRaceVehicle(Player player, Location spawn) {
+    public void remountRaceVehicle(Player player, Location spawn) {
         if (session == null || boatRaceService == null || player == null || spawn == null || !session.participants().contains(player.getUniqueId())) {
             return;
         }

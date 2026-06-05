@@ -156,6 +156,9 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         if (scoreboardService != null) {
             scoreboardService.stop();
         }
+        if (gameplayListener != null) {
+            gameplayListener.shutdown();
+        }
         if (eventManager != null) {
             eventManager.shutdown();
         }
