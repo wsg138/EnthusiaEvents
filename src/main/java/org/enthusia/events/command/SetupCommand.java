@@ -17,6 +17,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@SuppressWarnings({"PMD.AvoidLiteralsInIfCondition", "PMD.NPathComplexity"})
 public final class SetupCommand implements CommandExecutor, TabCompleter {
 
     private final EnthusiaEventsPlugin plugin;

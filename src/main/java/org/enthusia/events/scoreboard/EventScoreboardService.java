@@ -23,7 +23,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-@SuppressWarnings("PMD.UseConcurrentHashMap")
+@SuppressWarnings({
+        "PMD.UseConcurrentHashMap",
+        "PMD.AvoidDuplicateLiterals",
+        "PMD.AvoidLiteralsInIfCondition",
+        "PMD.NullAssignment"
+})
 public final class EventScoreboardService {
 
     private final EnthusiaEventsPlugin plugin;

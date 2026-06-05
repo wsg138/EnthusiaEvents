@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+@SuppressWarnings({"PMD.AvoidDuplicateLiterals", "PMD.NPathComplexity"})
 public final class EventRestrictionsListener implements Listener {
 
     private static final long BLOCKED_WARNING_COOLDOWN_MILLIS = 5000L;

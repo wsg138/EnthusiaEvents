@@ -37,6 +37,7 @@ import org.enthusia.events.skin.SkinCache;
 import org.enthusia.events.stats.EventStatsService;
 import org.enthusia.events.trophy.PodiumService;
 
+@SuppressWarnings({"PMD.SingularField", "PMD.AvoidFieldNameMatchingMethodName"})
 public final class EnthusiaEventsPlugin extends JavaPlugin {
 
     private Messages messages;

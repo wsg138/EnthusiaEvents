@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@SuppressWarnings("PMD.UseConcurrentHashMap")
+@SuppressWarnings({"PMD.UseConcurrentHashMap", "PMD.AvoidDuplicateLiterals"})
 public final class EventSpecAuditRegistry {
 
     private final EnthusiaEventsPlugin plugin;

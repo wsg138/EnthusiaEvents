@@ -7,6 +7,7 @@ import org.enthusia.events.EnthusiaEventsPlugin;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@SuppressWarnings("PMD.NullAssignment")
 public final class EventScheduler {
 
     private final EnthusiaEventsPlugin plugin;

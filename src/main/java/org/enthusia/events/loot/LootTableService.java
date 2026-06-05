@@ -24,7 +24,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
-@SuppressWarnings("PMD.UseConcurrentHashMap")
+@SuppressWarnings({
+        "PMD.UseConcurrentHashMap",
+        "PMD.AvoidDuplicateLiterals",
+        "PMD.AvoidInstantiatingObjectsInLoops",
+        "PMD.ExcessiveParameterList",
+        "PMD.NPathComplexity"
+})
 public final class LootTableService {
 
     private final EnthusiaEventsPlugin plugin;

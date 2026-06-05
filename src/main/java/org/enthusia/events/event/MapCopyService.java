@@ -20,6 +20,9 @@ import java.util.Queue;
 public final class MapCopyService {
 
     private static final int BLOCKS_PER_TICK = 2_000;
+    private static final String EXPORT_FAILED = "map-export-failed";
+    private static final String REASON = "reason";
+    private static final String ANOTHER_EXPORT_RUNNING = "another export is already running";
 
     private final EnthusiaEventsPlugin plugin;
     private final MapSetupService mapSetupService;
@@ -32,7 +35,7 @@ public final class MapCopyService {
 
     public boolean exportMap(CommandSender sender, EventMap map, String worldName) {
         if (running) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "another export is already running"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, ANOTHER_EXPORT_RUNNING));
             return false;
         }
         return startQueue(sender, new ArrayDeque<>(List.of(mapRequest(map, worldName))));
@@ -40,7 +43,7 @@ public final class MapCopyService {
 
     public boolean exportHub(CommandSender sender, String worldName) {
         if (running) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "another export is already running"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, ANOTHER_EXPORT_RUNNING));
             return false;
         }
         CopyRequest request = configuredAreaRequest(
@@ -50,7 +53,7 @@ public final class MapCopyService {
                 worldName == null || worldName.isBlank() ? "ee_waiting_hub" : worldName
         );
         if (request == null) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "waiting hub location and region must be set first"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, "waiting hub location and region must be set first"));
             return false;
         }
         return startQueue(sender, new ArrayDeque<>(List.of(request)));
@@ -58,7 +61,7 @@ public final class MapCopyService {
 
     public boolean exportTrophy(CommandSender sender, String worldName) {
         if (running) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "another export is already running"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, ANOTHER_EXPORT_RUNNING));
             return false;
         }
         CopyRequest request = configuredAreaRequest(
@@ -68,7 +71,7 @@ public final class MapCopyService {
                 worldName == null || worldName.isBlank() ? "ee_trophy_room" : worldName
         );
         if (request == null) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "trophy room location and region must be set first"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, "trophy room location and region must be set first"));
             return false;
         }
         return startQueue(sender, new ArrayDeque<>(List.of(request)));
@@ -76,7 +79,7 @@ public final class MapCopyService {
 
     public boolean exportGlobalAreas(CommandSender sender) {
         if (running) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "another export is already running"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, ANOTHER_EXPORT_RUNNING));
             return false;
         }
         List<CopyRequest> requests = new ArrayList<>();
@@ -89,7 +92,7 @@ public final class MapCopyService {
             requests.add(trophy);
         }
         if (requests.isEmpty()) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "hub and trophy room locations/regions must be set first"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, "hub and trophy room locations/regions must be set first"));
             return false;
         }
         return startQueue(sender, new ArrayDeque<>(requests));
@@ -97,7 +100,7 @@ public final class MapCopyService {
 
     public boolean exportAll(CommandSender sender) {
         if (running) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "another export is already running"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, ANOTHER_EXPORT_RUNNING));
             return false;
         }
         List<CopyRequest> requests = new ArrayList<>();
@@ -113,7 +116,7 @@ public final class MapCopyService {
             requests.add(mapRequest(map, defaultWorldName(map)));
         }
         if (requests.isEmpty()) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "no configured maps found"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, "no configured maps found"));
             return false;
         }
         return startQueue(sender, new ArrayDeque<>(requests));
@@ -133,24 +136,24 @@ public final class MapCopyService {
             return;
         }
         if (request.region() == null) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", request.label() + " has no region"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, request.label() + " has no region"));
             Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
             return;
         }
         World source = Bukkit.getWorld(request.region().worldName());
         if (source == null) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", request.label() + " source world is not loaded"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, request.label() + " source world is not loaded"));
             Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
             return;
         }
         if (source.getName().equalsIgnoreCase(request.worldName())) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", request.label() + " target world matches the source world"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, request.label() + " target world matches the source world"));
             Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
             return;
         }
         World target = Bukkit.createWorld(new WorldCreator(request.worldName()));
         if (target == null) {
-            plugin.messages().send(sender, "map-export-failed", java.util.Map.of("reason", "target world could not be created"));
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, "target world could not be created"));
             Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
             return;
         }

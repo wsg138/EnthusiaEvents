@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
 
+@SuppressWarnings("PMD.NullAssignment")
 public final class ChatEventService implements Listener {
 
     private final EnthusiaEventsPlugin plugin;

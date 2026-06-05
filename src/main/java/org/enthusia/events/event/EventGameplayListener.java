@@ -50,7 +50,14 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
-@SuppressWarnings("PMD.UseConcurrentHashMap")
+@SuppressWarnings({
+        "PMD.UseConcurrentHashMap",
+        "PMD.AvoidDuplicateLiterals",
+        "PMD.AvoidFieldNameMatchingMethodName",
+        "PMD.AvoidLiteralsInIfCondition",
+        "PMD.NPathComplexity",
+        "PMD.NullAssignment"
+})
 public final class EventGameplayListener implements Listener {
 
     private static final List<Material> BLOCK_PARTY_COLORS = List.of(

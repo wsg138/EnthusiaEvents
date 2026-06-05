@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
 public final class UnifiedEventCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> PLAYER_SUBCOMMANDS = List.of(

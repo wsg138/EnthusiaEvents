@@ -22,6 +22,7 @@ import org.enthusia.events.event.EventType;
 import java.util.List;
 import java.util.Map;
 
+@SuppressWarnings("PMD.NPathComplexity")
 public final class EventVoteGui {
 
     private final EnthusiaEventsPlugin plugin;

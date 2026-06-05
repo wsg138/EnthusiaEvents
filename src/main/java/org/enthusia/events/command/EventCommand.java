@@ -19,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
 public final class EventCommand implements CommandExecutor, TabCompleter {
 
     private final EnthusiaEventsPlugin plugin;

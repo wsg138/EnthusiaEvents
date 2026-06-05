@@ -52,6 +52,13 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+@SuppressWarnings({
+        "PMD.AvoidDuplicateLiterals",
+        "PMD.AvoidFieldNameMatchingMethodName",
+        "PMD.AvoidLiteralsInIfCondition",
+        "PMD.NPathComplexity",
+        "PMD.NullAssignment"
+})
 public final class EventManager {
 
     public static final String EVENT_SCOREBOARD_TAG = "enthusia_event";

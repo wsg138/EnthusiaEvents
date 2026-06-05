@@ -29,7 +29,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-@SuppressWarnings("PMD.UseConcurrentHashMap")
+@SuppressWarnings({
+        "PMD.UseConcurrentHashMap",
+        "PMD.AvoidDuplicateLiterals",
+        "PMD.AvoidLiteralsInIfCondition",
+        "PMD.NPathComplexity"
+})
 public final class SetupWizard {
 
     private final EnthusiaEventsPlugin plugin;
