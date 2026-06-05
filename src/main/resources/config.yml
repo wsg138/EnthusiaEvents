@@ -1,0 +1,118 @@
+schedule:
+  hourly-vote-second: 0
+  chat-event-minutes: [15, 30, 45]
+  vote-phase-seconds: 60
+  queue-delay-seconds: 30
+  join-phase-seconds: 300
+  ready-countdown-seconds: 60
+  countdown-seconds: 10
+  active-phase-seconds: 600
+  trophy-room-seconds: 10
+  start-block-window-minutes: 5
+
+locations:
+  waiting-hub: ""
+  waiting-hub-region:
+    pos1: ""
+    pos2: ""
+  trophy-room: ""
+  trophy-room-region:
+    pos1: ""
+    pos2: ""
+  podium:
+    first: ""
+    second: ""
+    third: ""
+
+restrictions:
+  blocked-commands:
+    - accept
+    - tpaccept
+    - tpa
+    - tpahere
+    - tpask
+    - spawn
+    - home
+    - warp
+    - rtp
+    - back
+  block-teleports: true
+  block-portals: true
+  lock-waiting-hub: true
+  lock-trophy-room: true
+  allow-admin-bypass: true
+
+reset:
+  max-blocks-per-session: 50000
+  track-physics: false
+
+chat-events:
+  enabled: false
+  reward: 50.0
+  answer-window-seconds: 45
+  scramble-words:
+    - enthusia
+    - events
+    - minecraft
+    - challenge
+    - winner
+
+economy:
+  manual-start-cost: 150.0
+  random-start-cost: 750.0
+  insufficient-player-refund: true
+  winner-reward: 100.0
+
+events:
+  min-players: 2
+  ready-players: 2
+  vote-options: 5
+  defaults:
+    allow-teleport: false
+    allow-ender-pearl: false
+    uses-kits: false
+  enabled:
+    - SKYWARS
+    - BEDWARS
+    - FIGHT_1V1
+    - FIGHT_2V2
+    - FIGHT_FFA
+    - SUMO_1V1
+    - SUMO_2V2
+    - SUMO_FFA
+    - KNOCKBACK_FFA
+    - QUAKE
+    - ONE_IN_THE_CHAMBER
+    - CAPTURE_THE_FLAG
+    - CAPTURE_PLAYERS
+    - BLOCK_PARTY
+    - HOT_POTATO
+    - SPLEEF
+    - SPLEEG
+    - RED_LIGHT_GREEN_LIGHT
+    - BOAT_RACE
+    - HORSE_RACE
+    - ELYTRA_RACE
+    - PARKOUR
+
+stats:
+  save-on-change: true
+
+parkour:
+  fall-distance-below-last-safe-point: 8.0
+
+boat-race:
+  max-release-wall-blocks: 10000
+
+capture-players:
+  captures-to-win: 5
+
+sounds:
+  event-join:
+    sound: ENTITY_PLAYER_LEVELUP
+    volume: 0.7
+    pitch: 1.4
+  vote-cast:
+    sound: UI_BUTTON_CLICK
+    volume: 0.7
+    pitch: 1.2

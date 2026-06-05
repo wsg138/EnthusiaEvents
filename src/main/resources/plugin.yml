@@ -1,0 +1,29 @@
+name: EnthusiaEvents
+main: org.enthusia.events.EnthusiaEventsPlugin
+version: 1.0.0
+api-version: "1.21"
+author: P2wn
+description: Large-scale scheduled event framework for Enthusia Network.
+softdepend: [Vault, PlaceholderAPI, floodgate, Geyser-Spigot, EnthusiaTeleport, CombatX, CombatLogX, NotBounties, WorldGuard]
+
+commands:
+  event:
+    description: Event commands.
+    usage: /event <join|leave|spectate|vote|start|stats|next|time|timer|admin>
+  ee:
+    description: Admin event commands.
+    usage: /ee <forcestart|simulatevote|advance|forcestop|quicktest|stop|restore|remove|reload|retryrestores|kit|resetconfigs|resetloot|sethub|settrophy|map|setup|quicksetup>
+    aliases: [events]
+  setup:
+    description: Open the event map setup wizard.
+    usage: /setup <event> [mapId]
+
+permissions:
+  enthusia.events.use:
+    default: true
+  enthusia.events.start:
+    default: true
+  enthusia.events.start.free:
+    default: op
+  enthusia.events.admin:
+    default: op

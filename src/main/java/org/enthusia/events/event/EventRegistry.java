@@ -1,0 +1,83 @@
+package org.enthusia.events.event;
+
+import org.bukkit.Material;
+import org.bukkit.configuration.ConfigurationSection;
+import org.enthusia.events.EnthusiaEventsPlugin;
+import org.enthusia.events.config.EventConfigService;
+
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+
+public final class EventRegistry {
+
+    private final EnthusiaEventsPlugin plugin;
+    private final EventConfigService eventConfigService;
+    private final Map<EventType, EventDefinition> definitions = new EnumMap<>(EventType.class);
+
+    public EventRegistry(EnthusiaEventsPlugin plugin, EventConfigService eventConfigService) {
+        this.plugin = plugin;
+        this.eventConfigService = eventConfigService;
+        reload();
+    }
+
+    public void reload() {
+        definitions.clear();
+        ConfigurationSection defaults = plugin.getConfig().getConfigurationSection("events.defaults");
+        boolean allowTeleport = defaults != null && defaults.getBoolean("allow-teleport", false);
+        boolean allowPearl = defaults != null && defaults.getBoolean("allow-ender-pearl", false);
+        boolean usesKits = defaults != null && defaults.getBoolean("uses-kits", false);
+        for (String raw : plugin.getConfig().getStringList("events.enabled")) {
+            EventType type = EventType.valueOf(raw.toUpperCase(Locale.ROOT));
+            definitions.put(type, new EventDefinition(
+                    type,
+                    displayName(type),
+                    iconFor(type),
+                    descriptionFor(type),
+                    allowTeleport,
+                    allowPearl,
+                    usesKits
+            ));
+        }
+    }
+
+    public List<EventDefinition> all() {
+        return new ArrayList<>(definitions.values());
+    }
+
+    public List<EventDefinition> randomChoices(int amount) {
+        List<EventDefinition> pool = new ArrayList<>(definitions.values());
+        List<EventDefinition> out = new ArrayList<>();
+        while (!pool.isEmpty() && out.size() < amount) {
+            out.add(pool.remove(ThreadLocalRandom.current().nextInt(pool.size())));
+        }
+        return out;
+    }
+
+    public EventDefinition definition(EventType type) {
+        return definitions.get(type);
+    }
+
+    private String displayName(EventType type) {
+        String[] parts = type.name().toLowerCase(Locale.ROOT).split("_");
+        StringBuilder builder = new StringBuilder();
+        for (String part : parts) {
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
+        }
+        return builder.toString();
+    }
+
+    private String descriptionFor(EventType type) {
+        return eventConfigService.description(type);
+    }
+
+    private Material iconFor(EventType type) {
+        return eventConfigService.icon(type);
+    }
+}

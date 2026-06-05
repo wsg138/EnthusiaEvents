@@ -1,4 +1,19 @@
 target/
+build/
+.gradle/
+.env
+.env.*
+*.log
+logs/
+crash-reports/
+*.jar
+*.zip
+*.tar.gz
+*.key
+*.pem
+*.p12
+*.db
+*.sqlite
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
@@ -15,3 +30,14 @@ buildNumber.properties
 .project
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
