@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-@SuppressWarnings("PMD.UseConcurrentHashMap")
+@SuppressWarnings({"PMD.UseConcurrentHashMap", "PMD.UnusedPrivateMethod"})
 public final class MapSetupService {
 
     private final EnthusiaEventsPlugin plugin;

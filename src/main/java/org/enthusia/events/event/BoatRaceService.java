@@ -105,6 +105,7 @@ public final class BoatRaceService implements Listener {
             spawned.setTamed(true);
             spawned.setAdult();
             spawned.setSilent(false);
+            spawned.setCollidable(false);
             spawned.setRotation(spawn.getYaw(), 0.0F);
             if (spawned.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED) != null) {
                 spawned.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED).setBaseValue(0.3375D);
@@ -190,8 +191,11 @@ public final class BoatRaceService implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onVehicleCollision(VehicleEntityCollisionEvent event) {
-        if (isRaceBoat(event.getVehicle())) {
+        if (isRaceBoat(event.getVehicle()) || isRaceHorse(event.getVehicle())
+                || isRaceBoat(event.getEntity()) || isRaceHorse(event.getEntity())) {
             event.setCancelled(true);
+            event.setCollisionCancelled(true);
+            event.setPickupCancelled(true);
         }
     }
 

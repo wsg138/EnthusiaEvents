@@ -25,6 +25,7 @@ import org.enthusia.events.event.ParticipantListener;
 import org.enthusia.events.event.PlayerSnapshotService;
 import org.enthusia.events.gui.EventVoteGui;
 import org.enthusia.events.gui.RestoreConfirmGui;
+import org.enthusia.events.integration.ExternalPluginIntegrationService;
 import org.enthusia.events.kit.EventKitService;
 import org.enthusia.events.kit.KitVoteListener;
 import org.enthusia.events.loot.LootTableService;
@@ -126,6 +127,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         getCommand("setup").setExecutor(setupCommand);
         getCommand("setup").setTabCompleter(setupCommand);
 
+        new ExternalPluginIntegrationService(this, eventManager).register();
         Bukkit.getPluginManager().registerEvents(new ParticipantListener(eventManager, voteGui, restoreConfirmGui, skinCache), this);
         Bukkit.getPluginManager().registerEvents(new EventRestrictionsListener(this, eventManager, mapSetupService), this);
         Bukkit.getPluginManager().registerEvents(gameplayListener, this);

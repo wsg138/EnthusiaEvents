@@ -35,6 +35,7 @@ import org.enthusia.events.util.TeleportService;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -78,10 +79,13 @@ public final class EventManager {
     private final Map<UUID, Long> allowedTeleports = new ConcurrentHashMap<>();
     private final Map<String, String> runtimeScoreboardValues = new ConcurrentHashMap<>();
     private final Set<UUID> spawnLocked = ConcurrentHashMap.newKeySet();
+    private final Queue<UUID> bracketQueue = new ArrayDeque<>();
+    private final Set<UUID> bracketContestants = ConcurrentHashMap.newKeySet();
     private EventSession session;
     private BukkitTask phaseTask;
     private BukkitTask activeTask;
     private BukkitTask preStartTask;
+    private BukkitTask bracketTask;
     private int countdownRemaining;
     private int preStartRemaining;
     private int voteRemaining;
@@ -378,11 +382,14 @@ public final class EventManager {
             TeleportService.teleport(plugin, player, map.spectatorSpawn(), "finished spectator spawn");
         }
         if (session.participants().isEmpty()) {
-            scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 20L);
+            scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 1L);
         }
     }
 
     public void eliminateParticipant(Player player, String reason) {
+        if (handleBracketElimination(player, reason)) {
+            return;
+        }
         if (session == null || session.phase() != EventPhase.ACTIVE || !session.participants().remove(player.getUniqueId())) {
             return;
         }
@@ -404,7 +411,7 @@ public final class EventManager {
             plugin.messages().send(player, "event-eliminated", Map.of("reason", reason));
         }
         if (session.participants().size() <= 1) {
-            scheduleEndActiveEvent(List.copyOf(session.participants()), 20L);
+            scheduleEndActiveEvent(List.copyOf(session.participants()), 1L);
         }
     }
 
@@ -425,6 +432,14 @@ public final class EventManager {
             return List.of();
         }
         return List.copyOf(session.participants());
+    }
+
+    public boolean isBracketContestant(UUID uuid) {
+        return bracketContestants.contains(uuid);
+    }
+
+    public boolean isBracketEvent() {
+        return session != null && isBracketEvent(session.definition().type());
     }
 
     public boolean restoreSnapshot(Player player) {
@@ -468,7 +483,7 @@ public final class EventManager {
             if (session.participants().isEmpty()) {
                 scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 0L);
             } else if (isLastPlayerStandingEvent(session.definition().type()) && session.participants().size() <= 1) {
-                scheduleEndActiveEvent(List.copyOf(session.participants()), 20L);
+                scheduleEndActiveEvent(List.copyOf(session.participants()), 1L);
             }
         }
     }
@@ -544,6 +559,7 @@ public final class EventManager {
         cancelActiveTask();
         cancelPreStartTask();
         spawnLocked.clear();
+        resetBracketState();
         phaseTask = Bukkit.getScheduler().runTaskLater(plugin, this::finishSession,
                 plugin.getConfig().getLong("schedule.trophy-room-seconds", 10L) * 20L);
     }
@@ -838,6 +854,7 @@ public final class EventManager {
         }
         cancelTask();
         cancelPreStartTask();
+        resetBracketState();
         session.phase(EventPhase.PRESTART);
         EventSession startingSession = session;
         spawnLocked.clear();
@@ -882,6 +899,7 @@ public final class EventManager {
                         Bukkit.getScheduler().runTask(plugin, () -> {
                             synchronized (this) {
                                 if (session == startingSession && session != null && session.phase() == EventPhase.PRESTART) {
+                                    prepareBracketPreStart();
                                     startPreStartCountdown();
                                 }
                             }
@@ -889,6 +907,7 @@ public final class EventManager {
                 return true;
             }
         }
+        prepareBracketPreStart();
         startPreStartCountdown();
         return true;
     }
@@ -1011,6 +1030,7 @@ public final class EventManager {
         runtimeScoreboardValues.clear();
         allowedTeleports.clear();
         spawnLocked.clear();
+        resetBracketState();
         kitService.clearSelections();
         resetRuntimeServices();
         cancelTask();
@@ -1307,6 +1327,139 @@ public final class EventManager {
         player.removeMetadata(EVENT_METADATA_KEY + "_type", plugin);
     }
 
+    private void prepareBracketPreStart() {
+        if (session == null || !isBracketEvent(session.definition().type()) || session.participants().size() < 2) {
+            return;
+        }
+        bracketQueue.clear();
+        bracketContestants.clear();
+        bracketQueue.addAll(session.participants());
+        UUID first = bracketQueue.poll();
+        UUID second = bracketQueue.poll();
+        if (first != null) {
+            bracketContestants.add(first);
+        }
+        if (second != null) {
+            bracketContestants.add(second);
+        }
+        for (UUID uuid : session.participants()) {
+            if (bracketContestants.contains(uuid)) {
+                continue;
+            }
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null) {
+                player.setGameMode(GameMode.SPECTATOR);
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GRAY
+                        + "You are waiting for your bracket match.");
+            }
+        }
+    }
+
+    private boolean handleBracketElimination(Player loser, String reason) {
+        if (session == null || session.phase() != EventPhase.ACTIVE
+                || !isBracketEvent(session.definition().type())
+                || !bracketContestants.contains(loser.getUniqueId())) {
+            return false;
+        }
+        UUID winnerId = bracketContestants.stream()
+                .filter(uuid -> !uuid.equals(loser.getUniqueId()) && session.participants().contains(uuid))
+                .findFirst()
+                .orElse(null);
+        bracketContestants.clear();
+        session.participants().remove(loser.getUniqueId());
+        session.spectators().add(loser.getUniqueId());
+        loser.getInventory().clear();
+        loser.getInventory().setArmorContents(null);
+        loser.getInventory().setItemInOffHand(null);
+        loser.setGameMode(GameMode.SPECTATOR);
+        plugin.messages().send(loser, "event-eliminated", Map.of("reason", reason));
+
+        Player winner = winnerId == null ? null : Bukkit.getPlayer(winnerId);
+        if (winnerId != null && session.participants().contains(winnerId)) {
+            bracketQueue.add(winnerId);
+            if (winner != null) {
+                winner.setHealth(winner.getMaxHealth());
+                winner.setFoodLevel(20);
+                winner.setFireTicks(0);
+                winner.setGameMode(GameMode.SPECTATOR);
+                messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN
+                        + winner.getName() + " won the bracket match.");
+            }
+        }
+        scheduleNextBracketMatch();
+        return true;
+    }
+
+    private void scheduleNextBracketMatch() {
+        cancelBracketTask();
+        long delay = Math.max(1L, plugin.getConfig().getLong("brackets.match-delay-seconds", 3L)) * 20L;
+        bracketTask = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            bracketTask = null;
+            startNextBracketMatch();
+        }, delay);
+    }
+
+    private void startNextBracketMatch() {
+        if (session == null || session.phase() != EventPhase.ACTIVE || !isBracketEvent(session.definition().type())) {
+            return;
+        }
+        bracketQueue.removeIf(uuid -> !session.participants().contains(uuid) || Bukkit.getPlayer(uuid) == null);
+        if (bracketQueue.size() <= 1) {
+            UUID winner = bracketQueue.poll();
+            if (winner == null && session.participants().size() == 1) {
+                winner = session.participants().iterator().next();
+            }
+            endActiveEvent(winner == null ? List.of() : List.of(winner));
+            return;
+        }
+        UUID first = bracketQueue.poll();
+        UUID second = bracketQueue.poll();
+        bracketContestants.add(first);
+        bracketContestants.add(second);
+        List<Map.Entry<String, Location>> spawns = session.selectedMap() == null
+                ? List.of()
+                : List.copyOf(session.selectedMap().spawns().entrySet());
+        prepareBracketPlayer(first, spawns.isEmpty() ? null : spawns.get(0).getValue(), 0);
+        prepareBracketPlayer(second, spawns.size() < 2 ? (spawns.isEmpty() ? null : spawns.get(0).getValue()) : spawns.get(1).getValue(), 1);
+        Player firstPlayer = Bukkit.getPlayer(first);
+        Player secondPlayer = Bukkit.getPlayer(second);
+        if (firstPlayer != null && secondPlayer != null) {
+            messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW
+                    + firstPlayer.getName() + " vs " + secondPlayer.getName() + ".");
+        }
+    }
+
+    private void prepareBracketPlayer(UUID uuid, Location spawn, int teamIndex) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player == null) {
+            return;
+        }
+        prepareActivePlayer(player, session.definition().type());
+        session.teams().put(uuid, String.valueOf(teamIndex + 1));
+        if (spawn != null) {
+            allowTeleport(uuid);
+            TeleportService.teleport(plugin, player, spawn, "bracket match spawn");
+        }
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.9F, 1.4F);
+    }
+
+    private boolean isBracketEvent(EventType type) {
+        return type == EventType.FIGHT_1V1 || type == EventType.SUMO_1V1;
+    }
+
+    private void resetBracketState() {
+        cancelBracketTask();
+        bracketQueue.clear();
+        bracketContestants.clear();
+    }
+
+    private void cancelBracketTask() {
+        if (bracketTask != null) {
+            bracketTask.cancel();
+            bracketTask = null;
+        }
+    }
+
     private void prepareActivePlayer(Player player, EventType type) {
         player.getInventory().clear();
         player.getInventory().setArmorContents(null);
@@ -1352,13 +1505,13 @@ public final class EventManager {
             }
             case SUMO_1V1, SUMO_2V2, SUMO_FFA -> {
                 player.setGameMode(GameMode.ADVENTURE);
-                player.getInventory().addItem(namedItem(Material.STICK, "Sumo Stick"));
             }
             case KNOCKBACK_FFA -> {
                 player.setGameMode(GameMode.ADVENTURE);
                 ItemStack stick = namedItem(Material.STICK, "Knockback Stick");
                 stick.addUnsafeEnchantment(Enchantment.KNOCKBACK, 4);
                 player.getInventory().addItem(stick);
+                player.getInventory().addItem(namedItem(Material.ENDER_PEARL, "Recovery Pearl"));
             }
             case QUAKE -> {
                 player.setGameMode(GameMode.SURVIVAL);
@@ -1387,8 +1540,6 @@ public final class EventManager {
             }
             case BEDWARS -> {
                 player.setGameMode(GameMode.SURVIVAL);
-                player.getInventory().addItem(namedItem(Material.WOODEN_SWORD, "BedWars Sword"));
-                player.getInventory().addItem(new ItemStack(Material.WHITE_WOOL, 32));
             }
             default -> player.setGameMode(GameMode.SURVIVAL);
         }

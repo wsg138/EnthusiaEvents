@@ -4,6 +4,7 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Color;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -18,6 +19,8 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.entity.Snowball;
+import org.bukkit.entity.Villager;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.EventHandler;
@@ -95,6 +98,8 @@ public final class EventGameplayListener implements Listener {
     private final Map<UUID, Integer> quakeScores = new HashMap<>();
     private final Map<UUID, BukkitTask> quakeRespawns = new HashMap<>();
     private final Map<UUID, BukkitTask> ctfRespawns = new HashMap<>();
+    private final Map<UUID, CtfInventoryLayout> ctfInventoryLayouts = new HashMap<>();
+    private final List<UUID> bedWarsShopEntities = new ArrayList<>();
     private final List<String> brokenBedTeams = new ArrayList<>();
     private final List<UUID> finishOrder = new ArrayList<>();
     private final Map<UUID, Location> redLightLastSafeLocation = new HashMap<>();
@@ -141,24 +146,33 @@ public final class EventGameplayListener implements Listener {
         quakeRespawns.clear();
         ctfRespawns.values().forEach(BukkitTask::cancel);
         ctfRespawns.clear();
+        removeBedWarsShops();
+        ctfInventoryLayouts.clear();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onMove(PlayerMoveEvent event) {
         EventSession session = eventManager.session();
         ensureSession(session);
-        if (session == null || session.phase() != EventPhase.ACTIVE) {
+        if (session == null || !session.participants().contains(event.getPlayer().getUniqueId())) {
             return;
         }
-        if (!session.participants().contains(event.getPlayer().getUniqueId())) {
+        EventType type = session.definition().type();
+        if (session.phase() == EventPhase.PRESTART && type == EventType.HORSE_RACE) {
+            handleHorseRacePreStartFall(session, event.getPlayer(), event.getTo());
+            return;
+        }
+        if (session.phase() != EventPhase.ACTIVE) {
             return;
         }
         EventMap map = session.selectedMap();
         if (map == null || map.region() == null) {
             return;
         }
+        if (eventManager.isBracketEvent() && !eventManager.isBracketContestant(event.getPlayer().getUniqueId())) {
+            return;
+        }
 
-        EventType type = session.definition().type();
         if (type == EventType.CAPTURE_THE_FLAG) {
             handleCaptureTheFlagMove(session, map, event.getPlayer(), event.getTo());
             return;
@@ -174,6 +188,16 @@ public final class EventGameplayListener implements Listener {
 
         double eliminationY = type == EventType.BLOCK_PARTY ? 65.0D : map.region().minY() - 1.0D;
         if (usesFallElimination(type) && event.getTo() != null && event.getTo().getY() <= eliminationY) {
+            if (type == EventType.BEDWARS) {
+                String team = session.teams().get(event.getPlayer().getUniqueId());
+                if (team != null && !brokenBedTeams.contains(team)) {
+                    respawnBedWarsPlayer(session, map, event.getPlayer());
+                    return;
+                }
+            }
+            if (type == EventType.KNOCKBACK_FFA) {
+                rewardKnockbackKill(event.getPlayer().getKiller());
+            }
             String reason = type == EventType.BLOCK_PARTY
                     ? "after " + Math.max(0, blockPartyRound) + " rounds"
                     : "fell out of the arena";
@@ -185,7 +209,8 @@ public final class EventGameplayListener implements Listener {
     public void onVehicleMove(VehicleMoveEvent event) {
         EventSession session = eventManager.session();
         ensureSession(session);
-        if (session == null || session.phase() != EventPhase.ACTIVE || session.definition().type() != EventType.HORSE_RACE) {
+        if (session == null || session.definition().type() != EventType.HORSE_RACE
+                || (session.phase() != EventPhase.ACTIVE && session.phase() != EventPhase.PRESTART)) {
             return;
         }
         Player player = event.getVehicle().getPassengers().stream()
@@ -198,7 +223,11 @@ public final class EventGameplayListener implements Listener {
         }
         EventMap map = session.selectedMap();
         if (map != null) {
-            handleRaceMove(session, map, player, event.getTo());
+            if (session.phase() == EventPhase.PRESTART) {
+                handleHorseRacePreStartFall(session, player, event.getTo());
+            } else {
+                handleRaceMove(session, map, player, event.getTo());
+            }
         }
     }
 
@@ -348,7 +377,7 @@ public final class EventGameplayListener implements Listener {
         }
         if (type == EventType.SUMO_1V1 || type == EventType.SUMO_2V2 || type == EventType.SUMO_FFA
                 || type == EventType.KNOCKBACK_FFA) {
-            event.setDamage(0.0D);
+            event.setDamage(type == EventType.KNOCKBACK_FFA ? 0.01D : 0.0D);
         }
     }
 
@@ -360,11 +389,20 @@ public final class EventGameplayListener implements Listener {
             return;
         }
         EventType type = session.definition().type();
+        Player damagePlayer = damagingPlayer(event.getDamager());
+        if (eventManager.isBracketEvent()
+                && (damagePlayer == null
+                || !(event.getEntity() instanceof Player target)
+                || !eventManager.isBracketContestant(damagePlayer.getUniqueId())
+                || !eventManager.isBracketContestant(target.getUniqueId()))) {
+            event.setCancelled(true);
+            return;
+        }
         if (type == EventType.QUAKE && event.getEntity() instanceof Player) {
             event.setCancelled(true);
             return;
         }
-        Player damager = damagingPlayer(event.getDamager());
+        Player damager = damagePlayer;
         if (type == EventType.CAPTURE_THE_FLAG && event.getEntity() instanceof Player target && damager != null) {
             handleCaptureTheFlagDamage(session, target, damager, event);
             return;
@@ -402,7 +440,10 @@ public final class EventGameplayListener implements Listener {
         event.setDroppedExp(0);
         Player killer = player.getKiller();
         if (session.definition().type() == EventType.ONE_IN_THE_CHAMBER && killer != null && session.participants().contains(killer.getUniqueId())) {
-            killer.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.ARROW, 1));
+            killer.getInventory().addItem(new ItemStack(Material.ARROW, 1));
+        }
+        if (session.definition().type() == EventType.KNOCKBACK_FFA) {
+            rewardKnockbackKill(killer);
         }
         if (session.definition().type() == EventType.BEDWARS) {
             String team = session.teams().get(player.getUniqueId());
@@ -428,8 +469,7 @@ public final class EventGameplayListener implements Listener {
             }
             Bukkit.getScheduler().runTask(plugin, () -> {
                 event.getPlayer().setGameMode(GameMode.SURVIVAL);
-                event.getPlayer().getInventory().clear();
-                event.getPlayer().getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.WOODEN_SWORD));
+                clearBedWarsInventory(event.getPlayer());
             });
             return;
         }
@@ -479,6 +519,8 @@ public final class EventGameplayListener implements Listener {
         quakeRespawns.clear();
         ctfRespawns.values().forEach(BukkitTask::cancel);
         ctfRespawns.clear();
+        ctfInventoryLayouts.clear();
+        removeBedWarsShops();
         capturedPlayers.clear();
         capturePlayerScores.clear();
         brokenBedTeams.clear();
@@ -516,7 +558,10 @@ public final class EventGameplayListener implements Listener {
             case RED_LIGHT_GREEN_LIGHT -> tickRedLightGreenLight(session);
             case BLOCK_PARTY -> ensureBlockPartyTask();
             case CAPTURE_THE_FLAG -> ensureCaptureTheFlagBlocks(session.selectedMap());
-            case BEDWARS -> tickBedWarsGenerators(session);
+            case BEDWARS -> {
+                tickBedWarsGenerators(session);
+                ensureBedWarsShops(session);
+            }
             default -> {
             }
         }
@@ -574,7 +619,7 @@ public final class EventGameplayListener implements Listener {
             String key = checkpoint.getKey().toLowerCase(Locale.ROOT);
             boolean reached = isFinishCheckpoint(key)
                     ? sameBlock(checkpoint.getValue(), checkLocation)
-                    : sameWorld(checkpoint.getValue(), checkLocation) && checkpoint.getValue().distanceSquared(checkLocation) <= (type == EventType.HORSE_RACE ? 16.0D : 4.0D);
+                    : reachesCheckpointPoint(checkpoint.getValue(), checkLocation, type);
             if (reached) {
                 if (key.equals(raceCheckpoint.get(player.getUniqueId()))) {
                     continue;
@@ -623,6 +668,10 @@ public final class EventGameplayListener implements Listener {
             player.setFallDistance(0.0F);
             player.setVelocity(new Vector(0, 0, 0));
             Location target = checkpoint.clone();
+            EventSession session = eventManager.session();
+            if (session != null && session.definition().type() == EventType.HORSE_RACE) {
+                target.add(0.0D, plugin.getConfig().getDouble("horse-race.respawn-height-offset", 2.5D), 0.0D);
+            }
             TeleportService.teleport(plugin, player, target, "race checkpoint respawn").thenAccept(success -> {
                 if (success) {
                     eventManager.remountRaceVehicle(player, target);
@@ -633,6 +682,31 @@ public final class EventGameplayListener implements Listener {
                 plugin.messages().send(player, "parkour-respawned", Map.of("checkpoint", checkpointNumber));
             }
         }
+    }
+
+    private void handleHorseRacePreStartFall(EventSession session, Player player, Location location) {
+        EventMap map = session.selectedMap();
+        if (map == null || location == null) {
+            return;
+        }
+        double recoveryY = plugin.getConfig().getDouble("horse-race.recovery-y", 65.0D);
+        if (location.getY() <= recoveryY) {
+            respawnRace(player, map);
+        }
+    }
+
+    private boolean reachesCheckpointPoint(Location checkpoint, Location current, EventType type) {
+        if (!sameWorld(checkpoint, current)) {
+            return false;
+        }
+        if (type != EventType.HORSE_RACE) {
+            return checkpoint.distanceSquared(current) <= 4.0D;
+        }
+        double dx = checkpoint.getX() - current.getX();
+        double dz = checkpoint.getZ() - current.getZ();
+        return (dx * dx) + (dz * dz) <= 9.0D
+                && current.getY() >= checkpoint.getY() - 2.0D
+                && current.getY() <= checkpoint.getY() + 6.0D;
     }
 
     private double raceFallDistance(EventType type) {
@@ -723,20 +797,20 @@ public final class EventGameplayListener implements Listener {
 
     private void rewardCaptureTheFlagKill(Player player) {
         player.getInventory().addItem(
-                new org.bukkit.inventory.ItemStack(Material.GOLDEN_APPLE, 1),
-                new org.bukkit.inventory.ItemStack(Material.COOKED_BEEF, 2),
-                new org.bukkit.inventory.ItemStack(Material.ARROW, 8)
+                new ItemStack(Material.GOLDEN_APPLE, 1),
+                new ItemStack(Material.COOKED_BEEF, 2),
+                new ItemStack(Material.ARROW, 8)
         );
     }
 
     private void applyCaptureTheFlagCarrierArmor(Player player, String flagTeam) {
-        player.getInventory().setHelmet(new org.bukkit.inventory.ItemStack(flagMaterial(flagTeam)));
-        player.getInventory().setBoots(new org.bukkit.inventory.ItemStack(Material.DIAMOND_BOOTS));
+        player.getInventory().setHelmet(new ItemStack(flagMaterial(flagTeam)));
+        player.getInventory().setBoots(new ItemStack(Material.DIAMOND_BOOTS));
     }
 
     private void restoreCaptureTheFlagArmor(Player player) {
-        player.getInventory().setHelmet(new org.bukkit.inventory.ItemStack(Material.CHAINMAIL_HELMET));
-        player.getInventory().setBoots(new org.bukkit.inventory.ItemStack(Material.CHAINMAIL_BOOTS));
+        player.getInventory().setHelmet(new ItemStack(Material.CHAINMAIL_HELMET));
+        player.getInventory().setBoots(new ItemStack(Material.CHAINMAIL_BOOTS));
     }
 
     private void captureFlag(EventSession session, Player player, String ownTeam, String carriedTeam) {
@@ -793,6 +867,9 @@ public final class EventGameplayListener implements Listener {
                 player.setGlowing(true);
                 player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 25, 0, true, false, true));
                 applyCaptureTheFlagCarrierArmor(player, carriedTeam);
+                if (processOwnFlagReturn(session, map, player, ownTeam)) {
+                    continue;
+                }
                 String reached = reachedFlagTeam(map, player.getLocation());
                 if (ownTeam.equals(reached)) {
                     captureFlag(session, player, ownTeam, carriedTeam);
@@ -801,6 +878,33 @@ public final class EventGameplayListener implements Listener {
             }
             processFlagPickup(session, map, player, ownTeam);
         }
+    }
+
+    private boolean processOwnFlagReturn(EventSession session, EventMap map, Player player, String ownTeam) {
+        Location dropped = ctfDroppedFlags.get(ownTeam);
+        if (dropped == null || !insideFlagCaptureBox(dropped, player.getLocation())) {
+            clearCtfProgress(player, ownTeam);
+            return false;
+        }
+        if (contestedFlag(session, dropped, ownTeam)) {
+            clearCtfProgress(player, ownTeam);
+            sendActionBar(player, ChatColor.RED + "Flag area contested");
+            return true;
+        }
+        String key = player.getUniqueId() + ":" + ownTeam;
+        int progress = ctfCaptureProgress.merge(key, 1, Integer::sum);
+        sendActionBar(player, captureBar("Returning your flag", progress, 60, ChatColor.GREEN));
+        if (progress < 60) {
+            return true;
+        }
+        ctfCaptureProgress.keySet().removeIf(value -> value.endsWith(":" + ownTeam));
+        ctfDroppedFlags.remove(ownTeam);
+        sendActionBar(player, ChatColor.GREEN + "Flag returned");
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 0.9F, 1.6F);
+        messageTeam(session, ownTeam, ChatColor.GOLD + "[Events] " + ChatColor.GREEN
+                + player.getName() + " returned your flag.");
+        ensureCaptureTheFlagBlocks(map);
+        return true;
     }
 
     private void processFlagPickup(EventSession session, EventMap map, Player player, String ownTeam) {
@@ -1113,7 +1217,7 @@ public final class EventGameplayListener implements Listener {
         ctfCarriers.remove(player.getUniqueId());
         player.setGlowing(false);
         player.removePotionEffect(PotionEffectType.SLOWNESS);
-        restoreCaptureTheFlagArmor(player);
+        applyCaptureTheFlagLoadout(player, ctfInventoryLayouts.remove(player.getUniqueId()));
         String team = session.teams().getOrDefault(player.getUniqueId(), nearestTeamByFlag(map, player.getLocation()));
         Location spawn = team == null ? null : map.spawns().get("team-" + team + "-spawn");
         if (spawn == null && team != null) {
@@ -1141,23 +1245,92 @@ public final class EventGameplayListener implements Listener {
         player.setGlowing(false);
         player.removePotionEffect(PotionEffectType.SLOWNESS);
         restoreCaptureTheFlagArmor(player);
+        ctfInventoryLayouts.put(player.getUniqueId(), captureCtfInventoryLayout(player));
         player.setFireTicks(0);
         player.setFallDistance(0.0F);
         player.setVelocity(new Vector(0, 0, 0));
         player.setHealth(player.getMaxHealth());
         player.setGameMode(GameMode.SPECTATOR);
         player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + message);
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            ctfRespawns.remove(player.getUniqueId());
+        final int[] seconds = {5};
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             EventSession current = eventManager.session();
             if (current == null || current != session || current.phase() != EventPhase.ACTIVE
                     || !current.participants().contains(player.getUniqueId()) || !player.isOnline()) {
+                BukkitTask currentTask = ctfRespawns.remove(player.getUniqueId());
+                if (currentTask != null) {
+                    currentTask.cancel();
+                }
                 return;
+            }
+            if (seconds[0] > 0) {
+                showRespawnCountdown(player, seconds[0], 5, ChatColor.RED);
+                seconds[0]--;
+                return;
+            }
+            BukkitTask currentTask = ctfRespawns.remove(player.getUniqueId());
+            if (currentTask != null) {
+                currentTask.cancel();
             }
             player.setGameMode(GameMode.SURVIVAL);
             respawnCaptureTheFlagPlayer(current, map, player, "You respawned.");
-        }, 100L);
+            clearRespawnCountdown(player);
+        }, 0L, 20L);
         ctfRespawns.put(player.getUniqueId(), task);
+    }
+
+    private CtfInventoryLayout captureCtfInventoryLayout(Player player) {
+        Map<Material, Integer> preferredSlots = new HashMap<>();
+        ItemStack[] contents = player.getInventory().getStorageContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            if (item != null && !item.getType().isAir()) {
+                preferredSlots.putIfAbsent(item.getType(), slot);
+            }
+        }
+        return new CtfInventoryLayout(preferredSlots);
+    }
+
+    private void applyCaptureTheFlagLoadout(Player player, CtfInventoryLayout layout) {
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(null);
+        player.getInventory().setItemInOffHand(null);
+        equipCtfArmor(player);
+        placeCtfItem(player, layout, namedItem(Material.IRON_SWORD, "CTF Sword"));
+        placeCtfItem(player, layout, namedItem(Material.IRON_AXE, "CTF Axe"));
+        placeCtfItem(player, layout, namedItem(Material.BOW, "CTF Bow"));
+        placeCtfItem(player, layout, new ItemStack(Material.GOLDEN_APPLE, 2));
+        placeCtfItem(player, layout, new ItemStack(Material.ARROW, 24));
+        placeCtfItem(player, layout, new ItemStack(Material.COOKED_BEEF, 8));
+        player.getInventory().setItemInOffHand(namedItem(Material.SHIELD, "CTF Shield"));
+        player.updateInventory();
+    }
+
+    private void placeCtfItem(Player player, CtfInventoryLayout layout, ItemStack item) {
+        Integer preferred = layout == null ? null : layout.preferredSlots().get(item.getType());
+        if (preferred != null && preferred >= 0 && preferred < player.getInventory().getStorageContents().length
+                && player.getInventory().getItem(preferred) == null) {
+            player.getInventory().setItem(preferred, item);
+            return;
+        }
+        player.getInventory().addItem(item);
+    }
+
+    private void equipCtfArmor(Player player) {
+        player.getInventory().setHelmet(new ItemStack(Material.CHAINMAIL_HELMET));
+        player.getInventory().setChestplate(new ItemStack(Material.CHAINMAIL_CHESTPLATE));
+        player.getInventory().setLeggings(new ItemStack(Material.CHAINMAIL_LEGGINGS));
+        player.getInventory().setBoots(new ItemStack(Material.CHAINMAIL_BOOTS));
+    }
+
+    private ItemStack namedItem(Material material, String name) {
+        ItemStack item = new ItemStack(material);
+        org.bukkit.inventory.meta.ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.YELLOW + name);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     private void messageTeam(EventSession session, String team, String message) {
@@ -1494,7 +1667,7 @@ public final class EventGameplayListener implements Listener {
             }
             for (Location location : locations) {
                 if (location != null && location.getWorld() != null) {
-                    location.getWorld().dropItemNaturally(location.clone().add(0.5D, 0.5D, 0.5D), new org.bukkit.inventory.ItemStack(material));
+                    location.getWorld().dropItemNaturally(location.clone().add(0.5D, 0.5D, 0.5D), new ItemStack(material));
                 }
             }
         });
@@ -1559,7 +1732,13 @@ public final class EventGameplayListener implements Listener {
         }
         Location eye = shooter.getEyeLocation();
         Vector direction = eye.getDirection().normalize();
-        for (double distance = 0.0D; distance <= 80.0D; distance += 1.2D) {
+        RayTraceResult blockHit = shooter.getWorld().rayTraceBlocks(
+                eye, direction, 80.0D, FluidCollisionMode.NEVER, true
+        );
+        double maxDistance = blockHit == null || blockHit.getHitPosition() == null
+                ? 80.0D
+                : Math.max(0.0D, blockHit.getHitPosition().distance(eye.toVector()) - 0.05D);
+        for (double distance = 0.0D; distance <= maxDistance; distance += 1.2D) {
             Location point = eye.clone().add(direction.clone().multiply(distance));
             shooter.getWorld().spawnParticle(Particle.END_ROD, point, 1, 0.0D, 0.0D, 0.0D, 0.0D);
         }
@@ -1567,7 +1746,7 @@ public final class EventGameplayListener implements Listener {
         RayTraceResult result = shooter.getWorld().rayTraceEntities(
                 eye,
                 direction,
-                80.0D,
+                maxDistance,
                 0.45D,
                 entity -> entity instanceof Player target
                         && !target.getUniqueId().equals(shooter.getUniqueId())
@@ -1579,6 +1758,7 @@ public final class EventGameplayListener implements Listener {
             addQuakeScore(target, -1);
             eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + shooter.getName()
                     + " hit " + target.getName() + ".");
+            target.getWorld().playSound(target.getLocation(), Sound.ENTITY_PLAYER_HURT, 1.0F, 0.7F);
             scheduleQuakeRespawn(session, target);
         }
     }
@@ -1614,13 +1794,26 @@ public final class EventGameplayListener implements Listener {
         player.setHealth(player.getMaxHealth());
         player.setGameMode(GameMode.SPECTATOR);
         player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "You will respawn in 3 seconds.");
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            quakeRespawns.remove(player.getUniqueId());
+        final int[] seconds = {3};
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             EventSession current = eventManager.session();
             if (current == null || current != session || current.phase() != EventPhase.ACTIVE
                     || current.definition().type() != EventType.QUAKE
                     || !current.participants().contains(player.getUniqueId()) || !player.isOnline()) {
+                BukkitTask currentTask = quakeRespawns.remove(player.getUniqueId());
+                if (currentTask != null) {
+                    currentTask.cancel();
+                }
                 return;
+            }
+            if (seconds[0] > 0) {
+                showRespawnCountdown(player, seconds[0], 3, ChatColor.YELLOW);
+                seconds[0]--;
+                return;
+            }
+            BukkitTask currentTask = quakeRespawns.remove(player.getUniqueId());
+            if (currentTask != null) {
+                currentTask.cancel();
             }
             EventMap map = current.selectedMap();
             Location spawn = randomSpawn(map);
@@ -1632,13 +1825,28 @@ public final class EventGameplayListener implements Listener {
             player.setFallDistance(0.0F);
             player.setVelocity(new Vector(0, 0, 0));
             if (!player.getInventory().contains(Material.GOLDEN_HOE)) {
-                player.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.GOLDEN_HOE));
+                player.getInventory().addItem(new ItemStack(Material.GOLDEN_HOE));
             }
             if (spawn != null) {
                 TeleportService.teleport(plugin, player, spawn, "quake respawn");
             }
-        }, 60L);
+            clearRespawnCountdown(player);
+        }, 0L, 20L);
         quakeRespawns.put(player.getUniqueId(), task);
+    }
+
+    private void showRespawnCountdown(Player player, int seconds, int totalSeconds, ChatColor color) {
+        player.setLevel(seconds);
+        player.setExp(Math.max(0.0F, Math.min(1.0F, seconds / (float) totalSeconds)));
+        sendActionBar(player, color + "Respawning in " + seconds + "...");
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, 0.7F, 1.0F);
+    }
+
+    private void clearRespawnCountdown(Player player) {
+        player.setLevel(0);
+        player.setExp(0.0F);
+        sendActionBar(player, ChatColor.GREEN + "Respawned");
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.9F, 1.5F);
     }
 
     private Location randomSpawn(EventMap map) {
@@ -1705,8 +1913,81 @@ public final class EventGameplayListener implements Listener {
         }
         if (!brokenBedTeams.contains(bedTeam)) {
             brokenBedTeams.add(bedTeam);
+            eventManager.setRuntimeScoreboardValue("bedwars-bed-" + bedTeam.toLowerCase(Locale.ROOT), "false");
             eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + "Team " + bedTeam + "'s bed was destroyed.");
         }
+    }
+
+    private void respawnBedWarsPlayer(EventSession session, EventMap map, Player player) {
+        Location spawn = bedWarsRespawn(session, map, player);
+        if (spawn == null) {
+            return;
+        }
+        player.setFallDistance(0.0F);
+        player.setFireTicks(0);
+        player.setHealth(player.getMaxHealth());
+        player.setFoodLevel(20);
+        player.setVelocity(new Vector(0, 0, 0));
+        clearBedWarsInventory(player);
+        TeleportService.teleport(plugin, player, spawn, "bedwars bed respawn");
+        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Your bed saved you.");
+    }
+
+    private void clearBedWarsInventory(Player player) {
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(null);
+        player.getInventory().setItemInOffHand(null);
+        player.updateInventory();
+    }
+
+    private void ensureBedWarsShops(EventSession session) {
+        if (!bedWarsShopEntities.isEmpty()) {
+            return;
+        }
+        EventMap map = session.selectedMap();
+        if (map == null) {
+            return;
+        }
+        map.points().forEach((key, location) -> {
+            String lower = key.toLowerCase(Locale.ROOT);
+            if ((!lower.startsWith("item-shop-") && !lower.startsWith("upgrade-shop-"))
+                    || location == null || location.getWorld() == null) {
+                return;
+            }
+            Villager villager = location.getWorld().spawn(location, Villager.class, spawned -> {
+                spawned.setAI(false);
+                spawned.setInvulnerable(true);
+                spawned.setCollidable(false);
+                spawned.setPersistent(false);
+                spawned.setSilent(true);
+                spawned.setCustomNameVisible(true);
+                spawned.setCustomName(lower.startsWith("item-shop-")
+                        ? ChatColor.GREEN + "Item Shop"
+                        : ChatColor.AQUA + "Team Upgrades");
+                spawned.addScoreboardTag("enthusia_bedwars_shop");
+            });
+            bedWarsShopEntities.add(villager.getUniqueId());
+        });
+    }
+
+    private void removeBedWarsShops() {
+        for (UUID uuid : bedWarsShopEntities) {
+            Entity entity = Bukkit.getEntity(uuid);
+            if (entity != null) {
+                entity.remove();
+            }
+        }
+        bedWarsShopEntities.clear();
+    }
+
+    private void rewardKnockbackKill(Player killer) {
+        EventSession session = eventManager.session();
+        if (killer == null || session == null || session.definition().type() != EventType.KNOCKBACK_FFA
+                || !session.participants().contains(killer.getUniqueId())) {
+            return;
+        }
+        killer.getInventory().addItem(namedItem(Material.ENDER_PEARL, "Recovery Pearl"));
+        killer.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Kill reward: +1 ender pearl.");
     }
 
     private Location bedWarsRespawn(EventSession session, EventMap map, Player player) {
@@ -1904,7 +2185,7 @@ public final class EventGameplayListener implements Listener {
                 continue;
             }
             for (int slot = 0; slot < 9; slot++) {
-                player.getInventory().setItem(slot, new org.bukkit.inventory.ItemStack(blockPartyTarget));
+                player.getInventory().setItem(slot, new ItemStack(blockPartyTarget));
             }
             player.updateInventory();
         }
@@ -1968,9 +2249,10 @@ public final class EventGameplayListener implements Listener {
         if (location.getWorld() == null || !location.getWorld().getName().equalsIgnoreCase(area.worldName())) {
             return false;
         }
-        return location.getX() >= area.minX() && location.getX() <= area.maxX()
-                && location.getZ() >= area.minZ() && location.getZ() <= area.maxZ()
-                && location.getY() >= area.minY() && location.getY() <= area.maxY() + 4.0D;
+        double margin = 0.75D;
+        return location.getX() >= area.minX() - margin && location.getX() <= area.maxX() + margin
+                && location.getZ() >= area.minZ() - margin && location.getZ() <= area.maxZ() + margin
+                && location.getY() >= area.minY() - 2.0D && location.getY() <= area.maxY() + 6.0D;
     }
 
     private boolean isRaceAreaKey(String key) {
@@ -2048,5 +2330,8 @@ public final class EventGameplayListener implements Listener {
 
     private String readableMaterial(Material material) {
         return material.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+    }
+
+    private record CtfInventoryLayout(Map<Material, Integer> preferredSlots) {
     }
 }

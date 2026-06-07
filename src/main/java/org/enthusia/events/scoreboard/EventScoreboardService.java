@@ -169,6 +169,9 @@ public final class EventScoreboardService {
     }
 
     private List<String> lines(EventSession session, Player player) {
+        if (session.definition().type() == EventType.BEDWARS) {
+            return bedWarsLines(session, player);
+        }
         List<String> template = templateFor(session.definition().type());
         List<String> lines = new ArrayList<>();
         long teamCount = session.teams().values().stream().distinct().count();
@@ -208,6 +211,42 @@ public final class EventScoreboardService {
             }
         }
         return lines.stream().limit(14).toList();
+    }
+
+    private List<String> bedWarsLines(EventSession session, Player player) {
+        List<String> lines = new ArrayList<>();
+        lines.add(color("&8&m---------------"));
+        lines.add(color("&c&lBedWars"));
+        lines.add(color("&7Team: &f" + displayTeam(eventManager.teamFor(player.getUniqueId()))));
+        lines.add(color("&7Time left: &e" + formatDuration(eventManager.activeSecondsRemaining())));
+        lines.add(uniqueBlank(0));
+        List<String> teams = session.teams().values().stream().distinct().sorted().toList();
+        for (String team : teams) {
+            boolean bedAlive = Boolean.parseBoolean(eventManager.runtimeScoreboardValue(
+                    "bedwars-bed-" + team.toLowerCase(java.util.Locale.ROOT), "true"
+            ));
+            boolean playerAlive = session.teams().entrySet().stream()
+                    .anyMatch(entry -> team.equals(entry.getValue()) && session.participants().contains(entry.getKey()));
+            lines.add(color(teamColorCode(team) + displayTeam(team)
+                    + " &7- " + (bedAlive ? "&aBED" : "&cX")
+                    + " &7- " + (playerAlive ? "&fALIVE" : "&8OUT")));
+        }
+        lines.add(uniqueBlank(1));
+        lines.add(color("&8" + (session.selectedMap() == null ? "" : session.selectedMap().id())));
+        return lines.stream().limit(14).toList();
+    }
+
+    private String teamColorCode(String team) {
+        return switch (team == null ? "" : team.toLowerCase(java.util.Locale.ROOT)) {
+            case "1", "red" -> "&c";
+            case "2", "blue" -> "&9";
+            case "3", "green" -> "&a";
+            case "4", "yellow" -> "&e";
+            case "5", "orange" -> "&6";
+            case "6", "purple" -> "&5";
+            case "7", "cyan" -> "&b";
+            default -> "&f";
+        };
     }
 
     private List<String> templateFor(EventType type) {
@@ -256,7 +295,7 @@ public final class EventScoreboardService {
                     "",
                     "&8{map}"
             );
-            case FIGHT_2V2, SUMO_2V2, BEDWARS, CAPTURE_PLAYERS -> List.of(
+            case FIGHT_2V2, SUMO_2V2, CAPTURE_PLAYERS -> List.of(
                     "&8&m---------------",
                     "&6&l{event}",
                     "&7Team: &f{team}",

@@ -4,7 +4,7 @@ version: 1.0.0
 api-version: "1.21"
 author: P2wn
 description: Large-scale scheduled event framework for Enthusia Network.
-softdepend: [Vault, PlaceholderAPI, floodgate, Geyser-Spigot, EnthusiaTeleport, CombatX, CombatLogX, NotBounties, WorldGuard]
+softdepend: [Vault, PlaceholderAPI, floodgate, Geyser-Spigot, EnthusiaTeleport, CombatX, CombatLogX, NotBounties, WorldGuard, LCE]
 
 commands:
   event:

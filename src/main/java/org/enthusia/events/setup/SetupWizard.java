@@ -148,12 +148,11 @@ public final class SetupWizard {
     }
 
     public boolean usesRelativePlacementTarget(Player player) {
-        SetupSession session = sessions.get(player.getUniqueId());
-        Optional<ToolSelection> selection = selectionFromHeldItem(player);
-        return session != null
-                && session.eventType() == EventType.ELYTRA_RACE
-                && selection.isPresent()
-                && selection.get().tool() == SetupTool.CHECKPOINT;
+        return false;
+    }
+
+    public boolean hasHeldSetupTool(Player player) {
+        return selectionFromHeldItem(player).isPresent();
     }
 
     public void handleClick(Player player, Block clickedBlock) {
@@ -541,7 +540,7 @@ public final class SetupWizard {
             player.getInventory().setItem(0, tool(Material.LIGHT_BLUE_WOOL, SetupTool.AREA_POS1, "", "Checkpoint Area Pos 1"));
             player.getInventory().setItem(1, tool(Material.BLUE_WOOL, SetupTool.AREA_POS2, "", "Checkpoint Area Pos 2"));
             player.getInventory().setItem(2, tool(Material.LIGHT, SetupTool.AREA, "checkpoint", "Save Checkpoint Area"));
-            player.getInventory().setItem(4, tool(Material.GOLD_BLOCK, SetupTool.CHECKPOINT, "ring", "Checkpoint Block"));
+            player.getInventory().setItem(4, tool(Material.GOLD_NUGGET, SetupTool.CHECKPOINT, "ring", "Set Checkpoint Center"));
             player.getInventory().setItem(5, tool(Material.RESPAWN_ANCHOR, SetupTool.CHECKPOINT_SPAWN, "checkpoint-spawn", "Checkpoint Respawn"));
             player.getInventory().setItem(7, tool(Material.ARROW, SetupTool.PAGE, "elytra-main", "Back to Main Tools"));
         } else {

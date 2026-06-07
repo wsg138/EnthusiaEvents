@@ -319,6 +319,13 @@ public final class EventRestrictionsListener implements Listener {
             return;
         }
         EventSession session = eventManager.session();
+        if (session != null && session.phase() == EventPhase.ACTIVE && eventManager.isBracketEvent()
+                && (event.getDamager() instanceof Player attacker)
+                && (!eventManager.isBracketContestant(attacker.getUniqueId())
+                || !eventManager.isBracketContestant(victim.getUniqueId()))) {
+            event.setCancelled(true);
+            return;
+        }
         if (session != null && session.phase() == EventPhase.PRESTART
                 && event.getDamager() instanceof Player attacker
                 && (eventManager.isEventPlayer(attacker.getUniqueId()) || eventManager.isEventPlayer(victim.getUniqueId()))) {

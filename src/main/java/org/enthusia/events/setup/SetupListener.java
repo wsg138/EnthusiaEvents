@@ -34,6 +34,9 @@ public final class SetupListener implements Listener {
         if (setupWizard.session(event.getPlayer()).isEmpty()) {
             return;
         }
+        if (!setupWizard.hasHeldSetupTool(event.getPlayer())) {
+            return;
+        }
         Block clicked = event.getClickedBlock();
         if (clicked == null) {
             return;

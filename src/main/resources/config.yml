@@ -104,6 +104,14 @@ parkour:
 boat-race:
   max-release-wall-blocks: 10000
 
+horse-race:
+  recovery-y: 65.0
+  fall-distance-below-last-safe-point: 96.0
+  respawn-height-offset: 2.5
+
+brackets:
+  match-delay-seconds: 3
+
 capture-players:
   captures-to-win: 5
 
