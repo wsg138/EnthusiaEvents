@@ -1,6 +1,7 @@
 package org.enthusia.events.kit;
 
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -39,12 +40,15 @@ public final class EventKitService {
     public void reload() {
         kits.clear();
         if (!file.exists()) {
+            installDefaultKits();
             save();
             return;
         }
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         ConfigurationSection root = yaml.getConfigurationSection("kits");
         if (root == null) {
+            installDefaultKits();
+            save();
             return;
         }
         for (String key : root.getKeys(false)) {
@@ -58,6 +62,10 @@ public final class EventKitService {
                     readItems(section, "armor", 4),
                     section.getItemStack("offhand")
             ));
+        }
+        if (kits.isEmpty()) {
+            installDefaultKits();
+            save();
         }
     }
 
@@ -100,6 +108,29 @@ public final class EventKitService {
             player.getInventory().setItemInOffHand(cloneItem(kit.offhand()));
             player.updateInventory();
         });
+    }
+
+    public void applyWinningKit(Player player) {
+        winningKit().ifPresent(kit -> {
+            player.getInventory().setStorageContents(cloneArray(kit.contents(), 36));
+            player.getInventory().setArmorContents(cloneArray(kit.armor(), 4));
+            player.getInventory().setItemInOffHand(cloneItem(kit.offhand()));
+            player.updateInventory();
+        });
+    }
+
+    public Optional<EventKit> winningKit() {
+        if (selectedKits.isEmpty()) {
+            return firstKit();
+        }
+        Map<String, Long> votes = selectedKits.values().stream()
+                .filter(kits::containsKey)
+                .collect(java.util.stream.Collectors.groupingBy(value -> value, java.util.stream.Collectors.counting()));
+        return votes.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed().thenComparing(Map.Entry::getKey))
+                .map(entry -> kits.get(entry.getKey()))
+                .findFirst()
+                .or(this::firstKit);
     }
 
     public Optional<EventKit> kit(String rawName) {
@@ -145,6 +176,64 @@ public final class EventKitService {
         } catch (IOException e) {
             plugin.getLogger().warning("Failed to save kits/kits.yml: " + e.getMessage());
         }
+    }
+
+    private void installDefaultKits() {
+        kits.put("classic", new EventKit(
+                "Classic",
+                contents(
+                        item(Material.IRON_SWORD, 1),
+                        item(Material.BOW, 1),
+                        item(Material.ARROW, 16),
+                        item(Material.COOKED_BEEF, 8),
+                        item(Material.GOLDEN_APPLE, 2)
+                ),
+                armor(Material.IRON_BOOTS, Material.IRON_LEGGINGS, Material.IRON_CHESTPLATE, Material.IRON_HELMET),
+                null
+        ));
+        kits.put("archer", new EventKit(
+                "Archer",
+                contents(
+                        item(Material.STONE_SWORD, 1),
+                        item(Material.BOW, 1),
+                        item(Material.ARROW, 32),
+                        item(Material.COOKED_BEEF, 8),
+                        item(Material.GOLDEN_APPLE, 1)
+                ),
+                armor(Material.CHAINMAIL_BOOTS, Material.CHAINMAIL_LEGGINGS, Material.CHAINMAIL_CHESTPLATE, Material.CHAINMAIL_HELMET),
+                null
+        ));
+        kits.put("heavy", new EventKit(
+                "Heavy",
+                contents(
+                        item(Material.DIAMOND_AXE, 1),
+                        item(Material.CROSSBOW, 1),
+                        item(Material.ARROW, 12),
+                        item(Material.COOKED_BEEF, 8),
+                        item(Material.GOLDEN_APPLE, 3)
+                ),
+                armor(Material.IRON_BOOTS, Material.IRON_LEGGINGS, Material.DIAMOND_CHESTPLATE, Material.IRON_HELMET),
+                item(Material.SHIELD, 1)
+        ));
+    }
+
+    private ItemStack[] contents(ItemStack... items) {
+        ItemStack[] contents = new ItemStack[36];
+        System.arraycopy(items, 0, contents, 0, Math.min(items.length, contents.length));
+        return contents;
+    }
+
+    private ItemStack[] armor(Material boots, Material leggings, Material chestplate, Material helmet) {
+        return new ItemStack[]{
+                item(boots, 1),
+                item(leggings, 1),
+                item(chestplate, 1),
+                item(helmet, 1)
+        };
+    }
+
+    private ItemStack item(Material material, int amount) {
+        return new ItemStack(material, amount);
     }
 
     private ItemStack[] readItems(ConfigurationSection section, String key, int size) {

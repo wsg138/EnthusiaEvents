@@ -66,6 +66,16 @@ public final class EventConfigService {
         ConfigurationSection legacy = plugin.getConfig().getConfigurationSection("events.per-event." + type.name());
 
         boolean changed = false;
+        int configVersion = yaml.getInt("config-version", 1);
+        if (type == EventType.BEDWARS && configVersion < 2
+                && yaml.getLong("active-phase-seconds", 900L) == 900L) {
+            yaml.set("active-phase-seconds", 1200L);
+            changed = true;
+        }
+        if (configVersion < 2) {
+            yaml.set("config-version", 2);
+            changed = true;
+        }
         changed |= setMissing(yaml, "icon", legacy == null ? defaults.icon().name() : legacy.getString("icon", defaults.icon().name()));
         changed |= setMissing(yaml, "description", legacy == null ? defaults.description() : legacy.getString("description", defaults.description()));
         changed |= setMissing(yaml, "min-players", legacy == null ? defaults.minPlayers() : legacy.getInt("min-players", defaults.minPlayers()));
@@ -107,7 +117,7 @@ public final class EventConfigService {
     private EventSettings defaults(EventType type) {
         return switch (type) {
             case SKYWARS -> new EventSettings(Material.FEATHER, "Loot island chests, bridge carefully, and be the last player alive.", 2, 2, 100.0D, 600L);
-            case BEDWARS -> new EventSettings(Material.RED_BED, "Solo BedWars. Protect your bed, use island generators, and eliminate every other player.", 2, 2, 100.0D, 900L);
+            case BEDWARS -> new EventSettings(Material.RED_BED, "Solo BedWars. Protect your bed, use island generators, and eliminate every other player.", 2, 2, 100.0D, 1200L);
             case FIGHT_1V1 -> new EventSettings(Material.IRON_SWORD, "A straight kit fight. Last player standing wins.", 2, 2, 100.0D, 300L);
             case FIGHT_2V2 -> new EventSettings(Material.DIAMOND_SWORD, "Small-team kit combat. Survive the fight to win.", 2, 4, 100.0D, 420L);
             case FIGHT_FFA -> new EventSettings(Material.NETHERITE_SWORD, "Free-for-all kit combat. Last player alive wins.", 2, 4, 100.0D, 600L);

@@ -541,6 +541,9 @@ public final class SetupWizard {
                 player.getInventory().setItem(slot++, tool(Material.LIGHT_BLUE_WOOL, SetupTool.AREA_POS1, "", "Display Area Pos 1"));
                 player.getInventory().setItem(slot++, tool(Material.BLUE_WOOL, SetupTool.AREA_POS2, "", "Display Area Pos 2"));
                 player.getInventory().setItem(slot++, tool(Material.REDSTONE_LAMP, SetupTool.AREA, "light-display", "Save Light Display"));
+                player.getInventory().setItem(9, tool(Material.LIME_WOOL, SetupTool.AREA_POS1, "", "Finish Line Pos 1"));
+                player.getInventory().setItem(10, tool(Material.GREEN_WOOL, SetupTool.AREA_POS2, "", "Finish Line Pos 2"));
+                player.getInventory().setItem(11, tool(Material.EMERALD_BLOCK, SetupTool.AREA, "finish-line", "Save Finish Line"));
             }
             case CAPTURE_THE_FLAG -> {
                 player.getInventory().setItem(2, tool(Material.DIAMOND_BLOCK, SetupTool.SPAWN, "team-spawn", "Team Spawn"));
@@ -1146,6 +1149,7 @@ public final class SetupWizard {
             case "color-floor" -> Material.NOTE_BLOCK;
             case "release-wall" -> Material.GLASS;
             case "light-display" -> Material.REDSTONE_LAMP;
+            case "finish-line" -> Material.EMERALD_BLOCK;
             case "capture-zone" -> Material.CHAIN;
             case "base-zone", "base-1", "base-2", "base-3", "base-4", "base-5", "base-6", "base-7", "base-8" -> Material.WHITE_WOOL;
             case "jail-zone" -> Material.IRON_BARS;

@@ -410,7 +410,9 @@ public final class EventManager {
         } else if (!(session.definition().type() == EventType.BLOCK_PARTY && "stood on the wrong color".equalsIgnoreCase(reason))) {
             plugin.messages().send(player, "event-eliminated", Map.of("reason", reason));
         }
-        if (session.participants().size() <= 1) {
+        if (session.participants().isEmpty()) {
+            scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 60L);
+        } else if (isLastPlayerStandingEvent(session.definition().type()) && session.participants().size() <= 1) {
             scheduleEndActiveEvent(List.copyOf(session.participants()), 60L);
         }
     }
@@ -1541,8 +1543,8 @@ public final class EventManager {
             }
             case FIGHT_1V1, FIGHT_2V2, FIGHT_FFA -> {
                 player.setGameMode(GameMode.SURVIVAL);
-                if (kitService.selectedKit(player).isPresent()) {
-                    kitService.applySelectedKit(player);
+                if (kitService.winningKit().isPresent()) {
+                    kitService.applyWinningKit(player);
                 } else {
                     equipArmor(player, Material.IRON_HELMET, Material.IRON_CHESTPLATE, Material.IRON_LEGGINGS, Material.IRON_BOOTS);
                     player.getInventory().addItem(namedItem(Material.IRON_SWORD, "Event Sword"));
@@ -1697,8 +1699,7 @@ public final class EventManager {
                 || type == EventType.BLOCK_PARTY
                 || type == EventType.HOT_POTATO
                 || type == EventType.SPLEEF
-                || type == EventType.SPLEEG
-                || type == EventType.RED_LIGHT_GREEN_LIGHT;
+                || type == EventType.SPLEEG;
     }
 
     private boolean canMoveDuringPreStart(EventType type) {

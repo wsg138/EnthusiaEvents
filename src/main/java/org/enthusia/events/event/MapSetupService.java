@@ -131,6 +131,9 @@ public final class MapSetupService {
         if (map.eventType() == EventType.RED_LIGHT_GREEN_LIGHT && !map.areas().containsKey("light-display")) {
             errors.add("red light green light display area is required");
         }
+        if (map.eventType() == EventType.RED_LIGHT_GREEN_LIGHT && !map.areas().containsKey("finish-line")) {
+            errors.add("red light green light finish line area is required");
+        }
         if (map.eventType() == EventType.CAPTURE_THE_FLAG
                 && map.points().keySet().stream().filter(key -> key.startsWith("flag-")).count() < 2) {
             errors.add("capture the flag requires at least two team flag points");
