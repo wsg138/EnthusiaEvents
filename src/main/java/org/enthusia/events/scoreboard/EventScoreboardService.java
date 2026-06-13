@@ -220,16 +220,19 @@ public final class EventScoreboardService {
         lines.add(color("&7Team: &f" + displayTeam(eventManager.teamFor(player.getUniqueId()))));
         lines.add(color("&7Time left: &e" + formatDuration(eventManager.activeSecondsRemaining())));
         lines.add(uniqueBlank(0));
+        lines.add(color("&7Tm  &7Bed  &7Ply"));
         List<String> teams = session.teams().values().stream().distinct().sorted().toList();
         for (String team : teams) {
             boolean bedAlive = Boolean.parseBoolean(eventManager.runtimeScoreboardValue(
                     "bedwars-bed-" + team.toLowerCase(java.util.Locale.ROOT), "true"
             ));
-            boolean playerAlive = session.teams().entrySet().stream()
-                    .anyMatch(entry -> team.equals(entry.getValue()) && session.participants().contains(entry.getKey()));
-            lines.add(color(teamColorCode(team) + displayTeam(team)
-                    + " &7- " + (bedAlive ? "&aBED" : "&cX")
-                    + " &7- " + (playerAlive ? "&fALIVE" : "&8OUT")));
+            long playersAlive = session.teams().entrySet().stream()
+                    .filter(entry -> team.equals(entry.getValue()) && session.participants().contains(entry.getKey()))
+                    .count();
+            String teamMarker = teamColorCode(team) + "\u25CF";
+            String bedMarker = bedAlive ? "&a\u2714" : "&c\u2716";
+            String playerMarker = playersAlive > 0 ? "&f" + playersAlive : "&8\u2716";
+            lines.add(color(teamMarker + "   " + bedMarker + "    " + playerMarker));
         }
         lines.add(uniqueBlank(1));
         lines.add(color("&8" + (session.selectedMap() == null ? "" : session.selectedMap().id())));

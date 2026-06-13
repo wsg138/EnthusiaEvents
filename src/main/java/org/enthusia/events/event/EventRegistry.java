@@ -39,10 +39,17 @@ public final class EventRegistry {
                     iconFor(type),
                     descriptionFor(type),
                     allowTeleport,
-                    allowPearl,
+                    allowPearlFor(type, allowPearl),
                     usesKits
             ));
         }
+    }
+
+    private boolean allowPearlFor(EventType type, boolean defaultValue) {
+        if (type == EventType.KNOCKBACK_FFA || type == EventType.BEDWARS) {
+            return true;
+        }
+        return defaultValue;
     }
 
     public List<EventDefinition> all() {

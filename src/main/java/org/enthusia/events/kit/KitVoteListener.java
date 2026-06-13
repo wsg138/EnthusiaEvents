@@ -110,12 +110,12 @@ public final class KitVoteListener implements Listener {
     }
 
     private ItemStack kitItem(EventKitService.EventKit kit) {
-        ItemStack item = new ItemStack(Material.CHEST);
+        ItemStack item = kit.previewItems().stream().findFirst().map(ItemStack::clone).orElseGet(() -> new ItemStack(Material.CHEST));
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + kit.name());
+            meta.setDisplayName(ChatColor.YELLOW + "Vote: " + kit.name());
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Right-click to select this kit.",
+                    ChatColor.GRAY + "Right-click to vote for this kit.",
                     ChatColor.GRAY + "Sneak-right-click to preview."
             ));
             meta.getPersistentDataContainer().set(kitKey, PersistentDataType.STRING, kit.name().toLowerCase(Locale.ROOT));
@@ -125,7 +125,7 @@ public final class KitVoteListener implements Listener {
     }
 
     private boolean isKitVotingPhase(EventSession session) {
-        return session.phase() == EventPhase.JOIN || session.phase() == EventPhase.COUNTDOWN || session.phase() == EventPhase.PRESTART;
+        return session.phase() == EventPhase.JOIN || session.phase() == EventPhase.COUNTDOWN;
     }
 
     public static boolean isFightEvent(EventType type) {

@@ -382,7 +382,7 @@ public final class EventManager {
             TeleportService.teleport(plugin, player, map.spectatorSpawn(), "finished spectator spawn");
         }
         if (session.participants().isEmpty()) {
-            scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 1L);
+            scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 60L);
         }
     }
 
@@ -411,7 +411,7 @@ public final class EventManager {
             plugin.messages().send(player, "event-eliminated", Map.of("reason", reason));
         }
         if (session.participants().size() <= 1) {
-            scheduleEndActiveEvent(List.copyOf(session.participants()), 1L);
+            scheduleEndActiveEvent(List.copyOf(session.participants()), 60L);
         }
     }
 
@@ -483,7 +483,7 @@ public final class EventManager {
             if (session.participants().isEmpty()) {
                 scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 0L);
             } else if (isLastPlayerStandingEvent(session.definition().type()) && session.participants().size() <= 1) {
-                scheduleEndActiveEvent(List.copyOf(session.participants()), 1L);
+                scheduleEndActiveEvent(List.copyOf(session.participants()), 60L);
             }
         }
     }
@@ -801,6 +801,7 @@ public final class EventManager {
             cancelTask();
             return;
         }
+        refreshKitVotingItems();
         maybeApplyReadyCountdown();
         if (countdownRemaining <= 0) {
             if (!hasEnoughPlayersForStart()) {
@@ -924,6 +925,7 @@ public final class EventManager {
                     releaseActivePlayers();
                     return;
                 }
+                refreshKitVotingItems();
                 messageEventPlayers(plugin.messages().format("prestart-countdown", Map.of(
                         "event", session.definition().displayName(),
                         "seconds", String.valueOf(preStartRemaining)
@@ -985,6 +987,26 @@ public final class EventManager {
             if (player != null) {
                 player.setLevel(Math.max(0, seconds));
                 player.setExp(progress);
+            }
+        }
+    }
+
+    private void refreshKitVotingItems() {
+        if (session == null) {
+            return;
+        }
+        if (session.definition().type() != EventType.FIGHT_1V1
+                && session.definition().type() != EventType.FIGHT_2V2
+                && session.definition().type() != EventType.FIGHT_FFA) {
+            return;
+        }
+        if (session.phase() != EventPhase.JOIN && session.phase() != EventPhase.COUNTDOWN) {
+            return;
+        }
+        for (UUID uuid : session.participants()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null) {
+                kitVotingItemsHandler.accept(player);
             }
         }
     }

@@ -537,11 +537,11 @@ public final class SetupWizard {
         player.getInventory().setArmorContents(null);
         player.getInventory().setItemInOffHand(null);
         if ("checkpoints".equalsIgnoreCase(page)) {
-            player.getInventory().setItem(0, tool(Material.LIGHT_BLUE_WOOL, SetupTool.AREA_POS1, "", "Checkpoint Area Pos 1"));
-            player.getInventory().setItem(1, tool(Material.BLUE_WOOL, SetupTool.AREA_POS2, "", "Checkpoint Area Pos 2"));
-            player.getInventory().setItem(2, tool(Material.LIGHT, SetupTool.AREA, "checkpoint", "Save Checkpoint Area"));
-            player.getInventory().setItem(4, tool(Material.GOLD_NUGGET, SetupTool.CHECKPOINT, "ring", "Set Checkpoint Center"));
-            player.getInventory().setItem(5, tool(Material.RESPAWN_ANCHOR, SetupTool.CHECKPOINT_SPAWN, "checkpoint-spawn", "Checkpoint Respawn"));
+            player.getInventory().setItem(0, tool(Material.LIGHT_BLUE_WOOL, SetupTool.AREA_POS1, "", "Ring Area Pos 1"));
+            player.getInventory().setItem(1, tool(Material.BLUE_WOOL, SetupTool.AREA_POS2, "", "Ring Area Pos 2"));
+            player.getInventory().setItem(2, tool(Material.LIGHT, SetupTool.AREA, "checkpoint", "Save Ring Area"));
+            player.getInventory().setItem(4, tool(Material.GOLD_NUGGET, SetupTool.CHECKPOINT, "ring", "Ring Center"));
+            player.getInventory().setItem(5, tool(Material.RESPAWN_ANCHOR, SetupTool.CHECKPOINT_SPAWN, "checkpoint-spawn", "Checkpoint Respawn Point"));
             player.getInventory().setItem(7, tool(Material.ARROW, SetupTool.PAGE, "elytra-main", "Back to Main Tools"));
         } else {
             player.getInventory().setItem(0, tool(Material.LIME_WOOL, SetupTool.POS1, "", "Region Pos 1"));

@@ -8,6 +8,7 @@ import org.bukkit.FluidCollisionMode;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
@@ -16,11 +17,17 @@ import org.bukkit.block.BlockState;
 import org.bukkit.block.data.Rotatable;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.entity.Snowball;
+import org.bukkit.entity.TNTPrimed;
 import org.bukkit.entity.Villager;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.EventHandler;
@@ -31,8 +38,10 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
@@ -47,9 +56,11 @@ import org.enthusia.events.util.TeleportService;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -81,9 +92,22 @@ public final class EventGameplayListener implements Listener {
             Material.RED_CONCRETE,
             Material.BLACK_CONCRETE
     );
+    private static final String BEDWARS_ITEM_SHOP_TAG = "enthusia_bedwars_item_shop";
+    private static final String BEDWARS_UPGRADE_SHOP_TAG = "enthusia_bedwars_upgrade_shop";
+    private static final String BEDWARS_ITEM_SHOP_TITLE = "BedWars Item Shop";
+    private static final String BEDWARS_UPGRADE_SHOP_TITLE = "BedWars Upgrades";
+    private static final List<Material> BEDWARS_LOOT_MATERIALS = List.of(
+            Material.IRON_INGOT,
+            Material.GOLD_INGOT,
+            Material.DIAMOND,
+            Material.EMERALD
+    );
 
     private final EnthusiaEventsPlugin plugin;
     private final EventManager eventManager;
+    private final NamespacedKey shopRewardKey;
+    private final NamespacedKey shopCostKey;
+    private final NamespacedKey shopCurrencyKey;
     private final Map<UUID, String> raceCheckpoint = new HashMap<>();
     private final Map<UUID, Integer> raceCheckpointOrder = new HashMap<>();
     private final Map<UUID, Location> raceSafeLocation = new HashMap<>();
@@ -100,6 +124,7 @@ public final class EventGameplayListener implements Listener {
     private final Map<UUID, BukkitTask> ctfRespawns = new HashMap<>();
     private final Map<UUID, CtfInventoryLayout> ctfInventoryLayouts = new HashMap<>();
     private final List<UUID> bedWarsShopEntities = new ArrayList<>();
+    private final Set<String> bedWarsPlacedBlocks = new HashSet<>();
     private final List<String> brokenBedTeams = new ArrayList<>();
     private final List<UUID> finishOrder = new ArrayList<>();
     private final Map<UUID, Location> redLightLastSafeLocation = new HashMap<>();
@@ -125,6 +150,9 @@ public final class EventGameplayListener implements Listener {
     public EventGameplayListener(EnthusiaEventsPlugin plugin, EventManager eventManager) {
         this.plugin = plugin;
         this.eventManager = eventManager;
+        this.shopRewardKey = new NamespacedKey(plugin, "bedwars-shop-reward");
+        this.shopCostKey = new NamespacedKey(plugin, "bedwars-shop-cost");
+        this.shopCurrencyKey = new NamespacedKey(plugin, "bedwars-shop-currency");
         this.tickTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickActiveEvent, 20L, 20L);
         this.ctfParticleTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickCaptureTheFlagParticles, 1L, 1L);
     }
@@ -148,6 +176,7 @@ public final class EventGameplayListener implements Listener {
         ctfRespawns.clear();
         removeBedWarsShops();
         ctfInventoryLayouts.clear();
+        bedWarsPlacedBlocks.clear();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -245,6 +274,9 @@ public final class EventGameplayListener implements Listener {
         EventMap map = session.selectedMap();
         if (map != null && map.region() != null && map.region().contains(event.getBlock().getLocation())
                 && (type == EventType.SKYWARS || type == EventType.BEDWARS)) {
+            if (type == EventType.BEDWARS) {
+                bedWarsPlacedBlocks.remove(locationKey(event.getBlock().getLocation()));
+            }
             if (type == EventType.BEDWARS && isBedBlock(event.getBlock().getType())) {
                 handleBedWarsBedBreak(session, map, event);
             }
@@ -272,9 +304,72 @@ public final class EventGameplayListener implements Listener {
         EventMap map = session.selectedMap();
         if (map != null && map.region() != null && map.region().contains(event.getBlockPlaced().getLocation())
                 && (type == EventType.SKYWARS || type == EventType.BEDWARS)) {
+            if (type == EventType.BEDWARS) {
+                bedWarsPlacedBlocks.add(locationKey(event.getBlockPlaced().getLocation()));
+            }
             return;
         }
         event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onExplode(EntityExplodeEvent event) {
+        EventSession session = eventManager.session();
+        ensureSession(session);
+        if (session == null || session.phase() != EventPhase.ACTIVE || session.definition().type() != EventType.BEDWARS) {
+            return;
+        }
+        if (!(event.getEntity() instanceof TNTPrimed)) {
+            return;
+        }
+        event.blockList().removeIf(this::isProtectedBedWarsExplosionBlock);
+        event.blockList().forEach(block -> bedWarsPlacedBlocks.remove(locationKey(block.getLocation())));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onInteractEntity(PlayerInteractEntityEvent event) {
+        EventSession session = eventManager.session();
+        ensureSession(session);
+        if (session == null || session.phase() != EventPhase.ACTIVE || session.definition().type() != EventType.BEDWARS) {
+            return;
+        }
+        if (!session.participants().contains(event.getPlayer().getUniqueId())) {
+            return;
+        }
+        if (event.getRightClicked().getScoreboardTags().contains(BEDWARS_ITEM_SHOP_TAG)) {
+            event.setCancelled(true);
+            event.getPlayer().openInventory(createBedWarsItemShop());
+            return;
+        }
+        if (event.getRightClicked().getScoreboardTags().contains(BEDWARS_UPGRADE_SHOP_TAG)) {
+            event.setCancelled(true);
+            event.getPlayer().openInventory(createBedWarsUpgradeShop());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        String title = event.getView().getTitle();
+        if (!BEDWARS_ITEM_SHOP_TITLE.equals(title) && !BEDWARS_UPGRADE_SHOP_TITLE.equals(title)) {
+            return;
+        }
+        event.setCancelled(true);
+        EventSession session = eventManager.session();
+        if (session == null || session.definition().type() != EventType.BEDWARS || !session.participants().contains(player.getUniqueId())) {
+            return;
+        }
+        ItemStack clicked = event.getCurrentItem();
+        if (clicked == null || !clicked.hasItemMeta()) {
+            return;
+        }
+        if (BEDWARS_UPGRADE_SHOP_TITLE.equals(title)) {
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Solo upgrades are not available yet.");
+            return;
+        }
+        buyBedWarsShopItem(player, clicked);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -446,11 +541,13 @@ public final class EventGameplayListener implements Listener {
             rewardKnockbackKill(killer);
         }
         if (session.definition().type() == EventType.BEDWARS) {
+            transferBedWarsResources(player, killer);
             String team = session.teams().get(player.getUniqueId());
             if (team != null && !brokenBedTeams.contains(team)) {
-                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Your bed is still alive. You will respawn.");
+                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " died.");
                 return;
             }
+            eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " was eliminated.");
         }
         eventManager.eliminateParticipant(player, "died");
     }
@@ -521,6 +618,8 @@ public final class EventGameplayListener implements Listener {
         ctfRespawns.clear();
         ctfInventoryLayouts.clear();
         removeBedWarsShops();
+        bedWarsPlacedBlocks.clear();
+        clearDroppedEventItems(trackedSession == null ? null : trackedSession.selectedMap());
         capturedPlayers.clear();
         capturePlayerScores.clear();
         brokenBedTeams.clear();
@@ -1325,7 +1424,7 @@ public final class EventGameplayListener implements Listener {
 
     private ItemStack namedItem(Material material, String name) {
         ItemStack item = new ItemStack(material);
-        org.bukkit.inventory.meta.ItemMeta meta = item.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.YELLOW + name);
             item.setItemMeta(meta);
@@ -1905,6 +2004,7 @@ public final class EventGameplayListener implements Listener {
         if (bedTeam == null) {
             return;
         }
+        bedWarsPlacedBlocks.remove(locationKey(event.getBlock().getLocation()));
         String breakerTeam = session.teams().get(event.getPlayer().getUniqueId());
         if (bedTeam.equals(breakerTeam)) {
             event.setCancelled(true);
@@ -1930,7 +2030,6 @@ public final class EventGameplayListener implements Listener {
         player.setVelocity(new Vector(0, 0, 0));
         clearBedWarsInventory(player);
         TeleportService.teleport(plugin, player, spawn, "bedwars bed respawn");
-        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Your bed saved you.");
     }
 
     private void clearBedWarsInventory(Player player) {
@@ -1961,10 +2060,14 @@ public final class EventGameplayListener implements Listener {
                 spawned.setPersistent(false);
                 spawned.setSilent(true);
                 spawned.setCustomNameVisible(true);
+                spawned.setRotation(location.getYaw(), location.getPitch());
                 spawned.setCustomName(lower.startsWith("item-shop-")
                         ? ChatColor.GREEN + "Item Shop"
                         : ChatColor.AQUA + "Team Upgrades");
                 spawned.addScoreboardTag("enthusia_bedwars_shop");
+                spawned.addScoreboardTag(lower.startsWith("item-shop-")
+                        ? BEDWARS_ITEM_SHOP_TAG
+                        : BEDWARS_UPGRADE_SHOP_TAG);
             });
             bedWarsShopEntities.add(villager.getUniqueId());
         });
@@ -1988,6 +2091,50 @@ public final class EventGameplayListener implements Listener {
         }
         killer.getInventory().addItem(namedItem(Material.ENDER_PEARL, "Recovery Pearl"));
         killer.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Kill reward: +1 ender pearl.");
+    }
+
+    private void transferBedWarsResources(Player victim, Player killer) {
+        if (killer == null || killer.getUniqueId().equals(victim.getUniqueId())) {
+            return;
+        }
+        List<String> transferred = new ArrayList<>();
+        for (Material material : BEDWARS_LOOT_MATERIALS) {
+            int amount = countMaterial(victim, material);
+            if (amount <= 0) {
+                continue;
+            }
+            Map<Integer, ItemStack> leftovers = killer.getInventory().addItem(new ItemStack(material, amount));
+            for (ItemStack leftover : leftovers.values()) {
+                killer.getWorld().dropItemNaturally(killer.getLocation(), leftover);
+            }
+            transferred.add(amount + " " + readableMaterial(material));
+        }
+        if (transferred.isEmpty()) {
+            return;
+        }
+        String summary = String.join(", ", transferred);
+        killer.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Looted " + summary + " from " + victim.getName() + ".");
+        victim.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + killer.getName() + " looted " + summary + " from you.");
+    }
+
+    private int countMaterial(Player player, Material material) {
+        int total = 0;
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (item != null && item.getType() == material) {
+                total += item.getAmount();
+            }
+        }
+        return total;
+    }
+
+    private boolean isProtectedBedWarsExplosionBlock(Block block) {
+        if (block == null) {
+            return true;
+        }
+        if (isBedBlock(block.getType())) {
+            return true;
+        }
+        return !bedWarsPlacedBlocks.contains(locationKey(block.getLocation()));
     }
 
     private Location bedWarsRespawn(EventSession session, EventMap map, Player player) {
@@ -2326,6 +2473,127 @@ public final class EventGameplayListener implements Listener {
 
     private boolean isFinishCheckpoint(String key) {
         return key.toLowerCase(Locale.ROOT).startsWith("finish");
+    }
+
+    private void clearDroppedEventItems(EventMap map) {
+        if (map == null || map.region() == null) {
+            return;
+        }
+        org.bukkit.World world = Bukkit.getWorld(map.worldName());
+        if (world == null) {
+            return;
+        }
+        for (Item item : world.getEntitiesByClass(Item.class)) {
+            if (map.region().contains(item.getLocation())) {
+                item.remove();
+            }
+        }
+    }
+
+    private String locationKey(Location location) {
+        return location.getWorld().getUID() + ":" + location.getBlockX() + ":" + location.getBlockY() + ":" + location.getBlockZ();
+    }
+
+    private Inventory createBedWarsItemShop() {
+        Inventory inventory = Bukkit.createInventory(null, 27, BEDWARS_ITEM_SHOP_TITLE);
+        inventory.setItem(10, shopItem(Material.WHITE_WOOL, 16, ChatColor.WHITE + "Wool", 4, Material.IRON_INGOT, "Blocks"));
+        inventory.setItem(11, shopItem(Material.SANDSTONE, 16, ChatColor.GOLD + "Sandstone", 12, Material.IRON_INGOT, "Blocks"));
+        inventory.setItem(12, shopItem(Material.STONE_SWORD, 1, ChatColor.GRAY + "Stone Sword", 10, Material.IRON_INGOT, "Weapons"));
+        inventory.setItem(13, shopItem(Material.IRON_SWORD, 1, ChatColor.WHITE + "Iron Sword", 7, Material.GOLD_INGOT, "Weapons"));
+        inventory.setItem(14, shopItem(Material.BOW, 1, ChatColor.YELLOW + "Bow", 12, Material.GOLD_INGOT, "Ranged"));
+        inventory.setItem(15, shopItem(Material.ARROW, 8, ChatColor.WHITE + "Arrows", 2, Material.GOLD_INGOT, "Ranged"));
+        inventory.setItem(16, shopItem(Material.GOLDEN_APPLE, 1, ChatColor.GOLD + "Golden Apple", 3, Material.GOLD_INGOT, "Utility"));
+        inventory.setItem(19, shopItem(Material.TNT, 1, ChatColor.RED + "TNT", 4, Material.GOLD_INGOT, "Explosives"));
+        inventory.setItem(20, shopItem(Material.SHEARS, 1, ChatColor.AQUA + "Shears", 20, Material.IRON_INGOT, "Tools"));
+        inventory.setItem(21, shopItem(Material.WATER_BUCKET, 1, ChatColor.BLUE + "Water Bucket", 2, Material.EMERALD, "Utility"));
+        inventory.setItem(22, shopItem(Material.ENDER_PEARL, 1, ChatColor.DARK_PURPLE + "Ender Pearl", 4, Material.EMERALD, "Utility"));
+        return inventory;
+    }
+
+    private Inventory createBedWarsUpgradeShop() {
+        Inventory inventory = Bukkit.createInventory(null, 27, BEDWARS_UPGRADE_SHOP_TITLE);
+        inventory.setItem(11, infoItem(Material.ANVIL, ChatColor.YELLOW + "Solo Upgrades", "Upgrade purchases are not available yet."));
+        inventory.setItem(15, infoItem(Material.TRIPWIRE_HOOK, ChatColor.AQUA + "Traps", "Trap purchases are not available yet."));
+        return inventory;
+    }
+
+    private ItemStack shopItem(Material material, int amount, String name, int cost, Material currency, String category) {
+        ItemStack item = new ItemStack(material, amount);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            meta.setLore(List.of(
+                    ChatColor.GRAY + category,
+                    ChatColor.YELLOW + "Cost: " + cost + " " + readableMaterial(currency)
+            ));
+            meta.getPersistentDataContainer().set(shopRewardKey, PersistentDataType.STRING, material.name());
+            meta.getPersistentDataContainer().set(shopCostKey, PersistentDataType.INTEGER, cost);
+            meta.getPersistentDataContainer().set(shopCurrencyKey, PersistentDataType.STRING, currency.name());
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack infoItem(Material material, String name, String description) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            meta.setLore(List.of(ChatColor.GRAY + description));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private void buyBedWarsShopItem(Player player, ItemStack shopEntry) {
+        ItemMeta meta = shopEntry.getItemMeta();
+        if (meta == null) {
+            return;
+        }
+        String reward = meta.getPersistentDataContainer().get(shopRewardKey, PersistentDataType.STRING);
+        Integer cost = meta.getPersistentDataContainer().get(shopCostKey, PersistentDataType.INTEGER);
+        String currencyName = meta.getPersistentDataContainer().get(shopCurrencyKey, PersistentDataType.STRING);
+        if (reward == null || cost == null || currencyName == null) {
+            return;
+        }
+        Material currency = Material.matchMaterial(currencyName);
+        Material rewardMaterial = Material.matchMaterial(reward);
+        if (currency == null || rewardMaterial == null) {
+            return;
+        }
+        if (countMaterial(player, currency) < cost) {
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You need " + cost + " " + readableMaterial(currency) + ".");
+            return;
+        }
+        ItemStack rewardItem = new ItemStack(rewardMaterial, shopEntry.getAmount());
+        if (player.getInventory().firstEmpty() == -1 && !player.getInventory().contains(rewardMaterial)) {
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "Your inventory is full.");
+            return;
+        }
+        removeCurrency(player, currency, cost);
+        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(rewardItem);
+        for (ItemStack leftover : leftovers.values()) {
+            player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+        }
+        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Purchased " + readableMaterial(rewardMaterial) + ".");
+    }
+
+    private void removeCurrency(Player player, Material currency, int amount) {
+        int remaining = amount;
+        ItemStack[] contents = player.getInventory().getStorageContents();
+        for (int slot = 0; slot < contents.length && remaining > 0; slot++) {
+            ItemStack item = contents[slot];
+            if (item == null || item.getType() != currency) {
+                continue;
+            }
+            int remove = Math.min(remaining, item.getAmount());
+            item.setAmount(item.getAmount() - remove);
+            if (item.getAmount() <= 0) {
+                player.getInventory().setItem(slot, null);
+            }
+            remaining -= remove;
+        }
+        player.updateInventory();
     }
 
     private String readableMaterial(Material material) {
