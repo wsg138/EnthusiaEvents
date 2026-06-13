@@ -6,6 +6,7 @@ public enum SetupTool {
     SPAWN,
     SPECTATOR,
     CHECKPOINT,
+    CHECKPOINT_BLOCK,
     CHECKPOINT_SPAWN,
     FINISH,
     CHEST,

@@ -17,6 +17,7 @@ public final class EventMap {
     private Location spectatorLocation;
     private final Map<String, Location> spawnLocations = new LinkedHashMap<>();
     private final Map<String, Location> checkpointLocations = new LinkedHashMap<>();
+    private final Map<String, List<Location>> checkpointBlockLocations = new LinkedHashMap<>();
     private final Map<String, Location> pointLocations = new LinkedHashMap<>();
     private final Map<String, CuboidRegion> namedAreas = new LinkedHashMap<>();
     private final Map<Integer, List<Location>> chestLocations = new LinkedHashMap<>();
@@ -65,6 +66,14 @@ public final class EventMap {
 
     public Map<String, Location> checkpoints() {
         return checkpointLocations;
+    }
+
+    public Map<String, List<Location>> checkpointBlocks() {
+        return checkpointBlockLocations;
+    }
+
+    public void addCheckpointBlock(String checkpointId, Location location) {
+        checkpointBlockLocations.computeIfAbsent(checkpointId, ignored -> new ArrayList<>()).add(location);
     }
 
     public Map<String, Location> points() {

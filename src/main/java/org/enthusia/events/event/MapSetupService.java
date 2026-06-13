@@ -146,8 +146,16 @@ public final class MapSetupService {
         }
         if (map.eventType() == EventType.ELYTRA_RACE
                 && map.checkpoints().keySet().stream().noneMatch(this::isRaceCheckpointKey)
+                && map.checkpointBlocks().values().stream().allMatch(List::isEmpty)
                 && map.areas().keySet().stream().noneMatch(this::isRaceCheckpointKey)) {
             errors.add("at least one elytra checkpoint is required");
+        }
+        if (map.eventType() == EventType.ELYTRA_RACE) {
+            map.checkpointBlocks().entrySet().stream()
+                    .filter(entry -> !entry.getValue().isEmpty())
+                    .filter(entry -> !map.points().containsKey("checkpoint-spawn-" + entry.getKey()))
+                    .map(Map.Entry::getKey)
+                    .forEach(key -> errors.add(key + " respawn point is required"));
         }
         return errors;
     }
@@ -197,6 +205,9 @@ public final class MapSetupService {
         map.spectatorSpawn(reworld(map.spectatorSpawn(), targetWorld));
         map.spawns().replaceAll((key, location) -> reworld(location, targetWorld));
         map.checkpoints().replaceAll((key, location) -> reworld(location, targetWorld));
+        map.checkpointBlocks().replaceAll((key, locations) -> locations.stream()
+                .map(location -> reworld(location, targetWorld))
+                .collect(Collectors.toCollection(ArrayList::new)));
         map.points().replaceAll((key, location) -> reworld(location, targetWorld));
         map.areas().replaceAll((key, area) -> reworld(area, targetWorld));
         map.chests().replaceAll((tier, locations) -> locations.stream()
@@ -230,6 +241,13 @@ public final class MapSetupService {
                 }
                 for (Map.Entry<String, Location> checkpoint : map.checkpoints().entrySet()) {
                     yaml.set(path + ".checkpoints." + checkpoint.getKey(), LocationCodec.encode(checkpoint.getValue()));
+                }
+                for (Map.Entry<String, List<Location>> checkpointEntry : map.checkpointBlocks().entrySet()) {
+                    int index = 0;
+                    for (Location location : checkpointEntry.getValue()) {
+                        yaml.set(path + ".checkpoint-blocks." + checkpointEntry.getKey() + "." + index++,
+                                LocationCodec.encode(location));
+                    }
                 }
                 for (Map.Entry<String, Location> point : map.points().entrySet()) {
                     yaml.set(path + ".points." + point.getKey(), LocationCodec.encode(point.getValue()));
@@ -326,6 +344,7 @@ public final class MapSetupService {
                 map.spectatorSpawn(LocationCodec.decode(mapSection.getString("spectator-spawn", "")));
                 loadLocations(mapSection.getConfigurationSection("spawns"), map.spawns());
                 loadLocations(mapSection.getConfigurationSection("checkpoints"), map.checkpoints());
+                loadCheckpointBlocks(mapSection.getConfigurationSection("checkpoint-blocks"), map);
                 loadLocations(mapSection.getConfigurationSection("points"), map.points());
                 loadAreas(mapSection.getConfigurationSection("areas"), map);
                 loadChestLocations(mapSection.getConfigurationSection("chests"), map);
@@ -358,6 +377,24 @@ public final class MapSetupService {
                 Location location = LocationCodec.decode(tierSection.getString(key, ""));
                 if (location != null) {
                     map.addChest(tier, location);
+                }
+            }
+        }
+    }
+
+    private void loadCheckpointBlocks(ConfigurationSection section, EventMap map) {
+        if (section == null) {
+            return;
+        }
+        for (String checkpointId : section.getKeys(false)) {
+            ConfigurationSection checkpointSection = section.getConfigurationSection(checkpointId);
+            if (checkpointSection == null) {
+                continue;
+            }
+            for (String key : checkpointSection.getKeys(false)) {
+                Location location = LocationCodec.decode(checkpointSection.getString(key, ""));
+                if (location != null) {
+                    map.addCheckpointBlock(checkpointId.toLowerCase(Locale.ROOT), location);
                 }
             }
         }

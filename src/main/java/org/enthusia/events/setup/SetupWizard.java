@@ -10,6 +10,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Player;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -48,6 +49,7 @@ public final class SetupWizard {
     private final Map<UUID, Location> areaPos1Selections = new HashMap<>();
     private final Map<UUID, Location> areaPos2Selections = new HashMap<>();
     private final Map<UUID, String> selectedTeams = new HashMap<>();
+    private final Map<UUID, String> selectedElytraCheckpoints = new HashMap<>();
     private final Map<UUID, String> palettePages = new HashMap<>();
     private final Map<UUID, Long> paletteSwitchCooldowns = new HashMap<>();
     private final Map<String, BlockData> originalBlocks = new HashMap<>();
@@ -67,6 +69,7 @@ public final class SetupWizard {
         captureInventory(player);
         sessions.put(player.getUniqueId(), new SetupSession(eventType, mapId, null, ""));
         selectedTeams.put(player.getUniqueId(), "1");
+        selectedElytraCheckpoints.remove(player.getUniqueId());
         palettePages.put(player.getUniqueId(), "main");
         player.getInventory().clear();
         player.getInventory().setArmorContents(null);
@@ -98,6 +101,7 @@ public final class SetupWizard {
         }
         boolean hadSession = sessions.remove(player.getUniqueId()) != null;
         selectedTeams.remove(player.getUniqueId());
+        selectedElytraCheckpoints.remove(player.getUniqueId());
         palettePages.remove(player.getUniqueId());
         paletteSwitchCooldowns.remove(player.getUniqueId());
         revertVisualsOnlyLocations(visualOnlyMarkers.remove(player.getUniqueId()));
@@ -122,6 +126,7 @@ public final class SetupWizard {
         }
         boolean hadSession = sessions.remove(player.getUniqueId()) != null;
         selectedTeams.remove(player.getUniqueId());
+        selectedElytraCheckpoints.remove(player.getUniqueId());
         palettePages.remove(player.getUniqueId());
         paletteSwitchCooldowns.remove(player.getUniqueId());
         revertVisualsOnly(actionHistory.remove(player.getUniqueId()));
@@ -142,6 +147,7 @@ public final class SetupWizard {
                 || selection.get().tool() == SetupTool.AREA_POS1
                 || selection.get().tool() == SetupTool.AREA_POS2
                 || selection.get().tool() == SetupTool.AREA
+                || selection.get().tool() == SetupTool.CHECKPOINT
                 || selection.get().tool() == SetupTool.TEAM
                 || selection.get().tool() == SetupTool.PAGE
                 || selection.get().tool() == SetupTool.REMOVE);
@@ -192,6 +198,7 @@ public final class SetupWizard {
                 && selection.get().tool() != SetupTool.AREA_POS1
                 && selection.get().tool() != SetupTool.AREA_POS2
                 && selection.get().tool() != SetupTool.AREA
+                && selection.get().tool() != SetupTool.CHECKPOINT
                 && selection.get().tool() != SetupTool.TEAM
                 && selection.get().tool() != SetupTool.PAGE
                 && selection.get().tool() != SetupTool.REMOVE)) {
@@ -204,6 +211,10 @@ public final class SetupWizard {
             return;
         }
         EventMap map = mapOptional.get();
+        if (selection.get().tool() == SetupTool.CHECKPOINT && map.eventType() == EventType.ELYTRA_RACE) {
+            selectElytraCheckpoint(player, map, selection.get().value());
+            return;
+        }
         if (selection.get().tool() == SetupTool.TEAM) {
             selectTeam(player, selection.get().value());
             return;
@@ -266,6 +277,48 @@ public final class SetupWizard {
         }
     }
 
+    public void handleBlockPlacement(BlockPlaceEvent event) {
+        Player player = event.getPlayer();
+        SetupSession session = sessions.get(player.getUniqueId());
+        if (session == null || session.eventType() != EventType.ELYTRA_RACE
+                || event.getBlockPlaced().getType() != Material.GOLD_BLOCK) {
+            return;
+        }
+        Optional<EventMap> mapOptional = mapSetupService.find(session.eventType(), session.mapId());
+        if (mapOptional.isEmpty()) {
+            return;
+        }
+        String checkpointId = selectedElytraCheckpoints.get(player.getUniqueId());
+        if (checkpointId == null) {
+            event.setCancelled(true);
+            plugin.messages().send(player, "setup-failed", Map.of(
+                    "reason", "use Start Next Checkpoint before placing checkpoint blocks"
+            ));
+            return;
+        }
+        EventMap map = mapOptional.get();
+        Location location = event.getBlockPlaced().getLocation();
+        List<Location> blocks = map.checkpointBlocks().computeIfAbsent(checkpointId, ignored -> new ArrayList<>());
+        if (blocks.stream().anyMatch(existing -> sameBlock(existing, location))) {
+            return;
+        }
+        blocks.add(location.clone());
+        mapSetupService.save();
+
+        String key = blockKey(location);
+        originalBlocks.putIfAbsent(key, event.getBlockReplacedState().getBlockData().clone());
+        markerStates.put(key, new MarkerState(85, Material.GOLD_BLOCK));
+        visualOnlyMarkers.computeIfAbsent(player.getUniqueId(), ignored -> new ArrayList<>()).add(location.clone());
+        record(player, SetupAction.listLocation(SetupTool.CHECKPOINT_BLOCK, checkpointId, location.clone(), location.clone()));
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (sessions.containsKey(player.getUniqueId())) {
+                replenishElytraCheckpointBlocks(player);
+                player.updateInventory();
+            }
+        });
+    }
+
     private void applySelection(Player player, EventMap map, Block clickedBlock, ToolSelection selection) {
         Location blockLocation = clickedBlock.getLocation();
         Location topCenter = orientedTopCenter(player, blockLocation);
@@ -316,6 +369,10 @@ public final class SetupWizard {
                 plugin.messages().send(player, "setup-click-saved", Map.of("target", "spectator spawn"));
             }
             case CHECKPOINT -> {
+                if (map.eventType() == EventType.ELYTRA_RACE) {
+                    selectElytraCheckpoint(player, map, selection.value());
+                    return;
+                }
                 String id = checkpointId(map, blockLocation, selection.value());
                 Location previous = map.checkpoints().get(id.toLowerCase(Locale.ROOT));
                 Location stored = map.eventType() == EventType.ELYTRA_RACE
@@ -332,7 +389,15 @@ public final class SetupWizard {
                 plugin.messages().send(player, "setup-click-saved", Map.of("target", "checkpoint " + id));
             }
             case CHECKPOINT_SPAWN -> {
-                String id = checkpointSpawnId(map, selection.value());
+                String id = map.eventType() == EventType.ELYTRA_RACE
+                        ? selectedElytraCheckpoints.get(player.getUniqueId())
+                        : checkpointSpawnId(map, selection.value());
+                if (id == null) {
+                    plugin.messages().send(player, "setup-failed", Map.of(
+                            "reason", "use Start Next Checkpoint before setting its respawn point"
+                    ));
+                    return;
+                }
                 String key = "checkpoint-spawn-" + id;
                 Location previous = map.points().get(key);
                 map.points().put(key, topCenter);
@@ -537,11 +602,14 @@ public final class SetupWizard {
         player.getInventory().setArmorContents(null);
         player.getInventory().setItemInOffHand(null);
         if ("checkpoints".equalsIgnoreCase(page)) {
-            player.getInventory().setItem(0, tool(Material.LIGHT_BLUE_WOOL, SetupTool.AREA_POS1, "", "Ring Area Pos 1"));
-            player.getInventory().setItem(1, tool(Material.BLUE_WOOL, SetupTool.AREA_POS2, "", "Ring Area Pos 2"));
-            player.getInventory().setItem(2, tool(Material.LIGHT, SetupTool.AREA, "checkpoint", "Save Ring Area"));
-            player.getInventory().setItem(4, tool(Material.GOLD_NUGGET, SetupTool.CHECKPOINT, "ring", "Ring Center"));
-            player.getInventory().setItem(5, tool(Material.RESPAWN_ANCHOR, SetupTool.CHECKPOINT_SPAWN, "checkpoint-spawn", "Checkpoint Respawn Point"));
+            String selected = selectedElytraCheckpoints.get(player.getUniqueId());
+            String current = selected == null ? "None" : selected;
+            player.getInventory().setItem(0, tool(Material.IRON_NUGGET, SetupTool.CHECKPOINT, "previous",
+                    "Previous Checkpoint (Current: " + current + ")"));
+            player.getInventory().setItem(1, new ItemStack(Material.GOLD_BLOCK, 64));
+            player.getInventory().setItem(2, tool(Material.GOLD_NUGGET, SetupTool.CHECKPOINT, "next",
+                    "Next / New Checkpoint (Current: " + current + ")"));
+            player.getInventory().setItem(3, tool(Material.RESPAWN_ANCHOR, SetupTool.CHECKPOINT_SPAWN, "current", "Set Current Respawn Point"));
             player.getInventory().setItem(7, tool(Material.ARROW, SetupTool.PAGE, "elytra-main", "Back to Main Tools"));
         } else {
             player.getInventory().setItem(0, tool(Material.LIME_WOOL, SetupTool.POS1, "", "Region Pos 1"));
@@ -643,6 +711,7 @@ public final class SetupWizard {
         List<String> removedNames = new ArrayList<>();
         removeLocation(map.spawns(), location, "spawn", removedNames);
         removeLocation(map.checkpoints(), location, "checkpoint", removedNames);
+        removeLocationList(map.checkpointBlocks(), location, "checkpoint {key} block", removedNames);
         removeLocation(map.points(), location, "point", removedNames);
         removeArea(map.areas(), location, removedNames);
         removeLocationList(map.chests(), location, "tier {key} chest", removedNames);
@@ -739,6 +808,8 @@ public final class SetupWizard {
             }
             case SPAWN -> restoreMapLocation(map.spawns(), action);
             case CHECKPOINT, FINISH -> restoreMapLocation(map.checkpoints(), action);
+            case CHECKPOINT_BLOCK -> map.checkpointBlocks().getOrDefault(action.key(), new ArrayList<>())
+                    .removeIf(location -> sameBlock(location, action.current()));
             case CHECKPOINT_SPAWN -> restoreMapLocation(map.points(), action);
             case POINT -> restoreMapLocation(map.points(), action);
             case AREA -> restoreMapArea(map.areas(), action);
@@ -1005,6 +1076,8 @@ public final class SetupWizard {
         markVisualOnly(player, markerBlockBelow(map.spectatorSpawn()), Material.ENDER_CHEST, 5);
         map.checkpoints().forEach((key, location) -> markVisualOnly(player, markerBlockBelow(location),
                 key.toLowerCase(Locale.ROOT).startsWith("finish") ? Material.EMERALD_BLOCK : Material.GOLD_BLOCK, 5));
+        map.checkpointBlocks().values().forEach(locations ->
+                locations.forEach(location -> markVisualOnly(player, location, Material.GOLD_BLOCK, 5)));
         map.points().forEach((key, location) -> markVisualOnly(player, location, pointMarker(key), 5));
         map.chests().forEach((tier, locations) -> locations.forEach(location -> markVisualOnly(player, location, chestMarker(tier), 5)));
         map.generators().forEach((type, locations) -> locations.forEach(location -> markVisualOnly(player, location, generatorMarker(type), 5)));
@@ -1131,6 +1204,62 @@ public final class SetupWizard {
             return lower.substring("checkpoint-spawn-".length());
         }
         return lower;
+    }
+
+    private void selectElytraCheckpoint(Player player, EventMap map, String direction) {
+        int highest = highestElytraCheckpoint(map);
+        String current = selectedElytraCheckpoints.get(player.getUniqueId());
+        int currentNumber = checkpointNumberValue(current);
+        int selectedNumber;
+        if ("previous".equalsIgnoreCase(direction)) {
+            selectedNumber = currentNumber <= 1 ? Math.max(1, highest) : currentNumber - 1;
+        } else if (currentNumber <= 0) {
+            selectedNumber = 1;
+        } else {
+            selectedNumber = currentNumber + 1;
+        }
+        String checkpointId = "cp" + selectedNumber;
+        selectedElytraCheckpoints.put(player.getUniqueId(), checkpointId);
+        map.checkpointBlocks().computeIfAbsent(checkpointId, ignored -> new ArrayList<>());
+        mapSetupService.save();
+        giveElytraPalette(player, "checkpoints");
+        player.updateInventory();
+        plugin.messages().send(player, "setup-click-saved", Map.of(
+                "target", checkpointId + " selected; place gold blocks to define its exact checkpoint area"
+        ));
+    }
+
+    private int highestElytraCheckpoint(EventMap map) {
+        return java.util.stream.Stream.of(
+                        map.checkpointBlocks().keySet(),
+                        map.checkpoints().keySet(),
+                        map.areas().keySet()
+                )
+                .flatMap(java.util.Collection::stream)
+                .mapToInt(this::checkpointNumberValue)
+                .max()
+                .orElse(0);
+    }
+
+    private int checkpointNumberValue(String checkpointId) {
+        if (checkpointId == null) {
+            return 0;
+        }
+        String digits = checkpointId.replaceAll("\\D+", "");
+        if (digits.isBlank()) {
+            return 0;
+        }
+        return Integer.parseInt(digits);
+    }
+
+    private void replenishElytraCheckpointBlocks(Player player) {
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (item != null && item.getType() == Material.GOLD_BLOCK && !item.hasItemMeta()) {
+                item.setAmount(64);
+                return;
+            }
+        }
+        player.getInventory().setItem(1, new ItemStack(Material.GOLD_BLOCK, 64));
     }
 
     private String finishId(EventMap map, EventType eventType, Location blockLocation) {
@@ -1289,6 +1418,7 @@ public final class SetupWizard {
             return switch (tool) {
                 case SPAWN -> "spawn " + key;
                 case CHECKPOINT -> "checkpoint " + key;
+                case CHECKPOINT_BLOCK -> "checkpoint block for " + key;
                 case CHECKPOINT_SPAWN -> key + " point";
                 case FINISH -> "finish";
                 case SPECTATOR -> "spectator spawn";

@@ -688,6 +688,15 @@ public final class EventGameplayListener implements Listener {
             return;
         }
 
+        Map.Entry<String, List<Location>> blockCheckpoint = reachedCheckpointBlocks(map, checkLocation, type);
+        if (blockCheckpoint != null) {
+            Location checkpointLocation = blockCheckpoint.getValue().isEmpty()
+                    ? checkLocation
+                    : blockCheckpoint.getValue().getFirst();
+            recordRaceCheckpoint(player, map, blockCheckpoint.getKey(), checkpointLocation);
+            return;
+        }
+
         Map.Entry<String, CuboidRegion> areaCheckpoint = reachedRaceArea(map, checkLocation, type);
         if (areaCheckpoint != null) {
             if (isFinishCheckpoint(areaCheckpoint.getKey())) {
@@ -2384,6 +2393,30 @@ public final class EventGameplayListener implements Listener {
                 .sorted((left, right) -> checkpointOrder(left.getKey()) - checkpointOrder(right.getKey()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private Map.Entry<String, List<Location>> reachedCheckpointBlocks(EventMap map, Location location, EventType type) {
+        if (map == null || location == null || type != EventType.ELYTRA_RACE) {
+            return null;
+        }
+        return map.checkpointBlocks().entrySet().stream()
+                .filter(entry -> entry.getValue().stream().anyMatch(block -> touchesCheckpointBlock(block, location)))
+                .sorted((left, right) -> checkpointOrder(left.getKey()) - checkpointOrder(right.getKey()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean touchesCheckpointBlock(Location block, Location location) {
+        if (!sameWorld(block, location)) {
+            return false;
+        }
+        double margin = 0.35D;
+        return location.getX() >= block.getBlockX() - margin
+                && location.getX() <= block.getBlockX() + 1.0D + margin
+                && location.getY() >= block.getBlockY() - margin
+                && location.getY() <= block.getBlockY() + 1.8D
+                && location.getZ() >= block.getBlockZ() - margin
+                && location.getZ() <= block.getBlockZ() + 1.0D + margin;
     }
 
     private boolean containsRaceArea(CuboidRegion area, Location location, EventType type) {

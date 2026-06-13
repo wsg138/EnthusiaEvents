@@ -6,6 +6,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 
@@ -48,5 +49,10 @@ public final class SetupListener implements Listener {
             clicked = clicked.getRelative(BlockFace.UP);
         }
         setupWizard.handleClick(event.getPlayer(), clicked);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlace(BlockPlaceEvent event) {
+        setupWizard.handleBlockPlacement(event);
     }
 }

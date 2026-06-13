@@ -7,7 +7,8 @@
 ## Races
 
 - [ ] Confirm Boat Race boats do not collide.
-- [ ] Confirm Elytra checkpoint setup works end to end.
+- [ ] Confirm normally placed gold blocks form one irregular Elytra checkpoint area until `Next / New Checkpoint` is used.
+- [ ] Confirm Elytra checkpoint marker blocks restore to their previous blocks after setup is saved or cancelled.
 - [ ] Confirm Elytra checkpoints register once and respawn correctly.
 
 ## Combat
