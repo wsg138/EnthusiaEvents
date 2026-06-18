@@ -138,14 +138,23 @@ public final class MapSetupService {
                 && map.points().keySet().stream().filter(key -> key.startsWith("flag-")).count() < 2) {
             errors.add("capture the flag requires at least two team flag points");
         }
-        if (map.eventType() == EventType.CAPTURE_PLAYERS && !map.areas().containsKey("capture-zone")) {
-            errors.add("capture players capture zone is required");
-        }
-        if (map.eventType() == EventType.CAPTURE_PLAYERS && !map.areas().containsKey("jail-zone")) {
-            errors.add("capture players jail zone is required");
-        }
-        if (map.eventType() == EventType.CAPTURE_PLAYERS && !map.areas().containsKey("free-zone")) {
-            errors.add("capture players free zone is required");
+        if (map.eventType() == EventType.CAPTURE_PLAYERS) {
+            List<String> teams = map.spawns().keySet().stream()
+                    .filter(key -> key.startsWith("team-") && key.endsWith("-spawn"))
+                    .map(key -> key.substring("team-".length(), key.length() - "-spawn".length()))
+                    .distinct()
+                    .toList();
+            for (String team : teams) {
+                if (!map.areas().containsKey("capture-zone-" + team)) {
+                    errors.add("capture players " + team + " capture zone is required");
+                }
+                if (!map.areas().containsKey("jail-zone-" + team)) {
+                    errors.add("capture players " + team + " jail zone is required");
+                }
+                if (!map.areas().containsKey("free-zone-" + team)) {
+                    errors.add("capture players " + team + " free zone is required");
+                }
+            }
         }
         if (map.eventType() == EventType.ELYTRA_RACE
                 && map.checkpoints().keySet().stream().noneMatch(this::isRaceCheckpointKey)

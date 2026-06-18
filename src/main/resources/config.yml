@@ -113,7 +113,7 @@ brackets:
   match-delay-seconds: 3
 
 capture-players:
-  captures-to-win: 5
+  rounds-to-win: 3
 
 sounds:
   event-join:

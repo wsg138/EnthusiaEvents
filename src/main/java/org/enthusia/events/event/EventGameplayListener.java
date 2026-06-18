@@ -19,9 +19,11 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Fireball;
+import org.bukkit.entity.IronGolem;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.entity.Silverfish;
 import org.bukkit.entity.Snowball;
 import org.bukkit.entity.TNTPrimed;
 import org.bukkit.entity.Villager;
@@ -29,6 +31,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.PotionMeta;
 import org.bukkit.persistence.PersistentDataType;
@@ -49,12 +52,14 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.projectiles.ProjectileSource;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.potion.PotionType;
 import org.enthusia.events.EnthusiaEventsPlugin;
 import org.enthusia.events.util.TeleportService;
 
@@ -99,7 +104,7 @@ public final class EventGameplayListener implements Listener {
     private static final String BEDWARS_ITEM_SHOP_TAG = "enthusia_bedwars_item_shop";
     private static final String BEDWARS_UPGRADE_SHOP_TAG = "enthusia_bedwars_upgrade_shop";
     private static final String BEDWARS_ITEM_SHOP_TITLE = "BedWars Item Shop";
-    private static final String BEDWARS_UPGRADE_SHOP_TITLE = "BedWars Upgrades";
+    private static final String BEDWARS_UPGRADE_SHOP_TITLE = "Upgrades & Traps";
     private static final List<Material> BEDWARS_LOOT_MATERIALS = List.of(
             Material.IRON_INGOT,
             Material.GOLD_INGOT,
@@ -123,14 +128,24 @@ public final class EventGameplayListener implements Listener {
     private final Map<String, Location> ctfRenderedFlagBlocks = new HashMap<>();
     private final Map<String, Location> ctfDroppedFlags = new HashMap<>();
     private final Map<String, Integer> ctfCaptureProgress = new HashMap<>();
-    private final Map<UUID, String> capturedPlayers = new HashMap<>();
-    private final Map<String, Integer> capturePlayerScores = new HashMap<>();
+    private final Map<UUID, String> capturePlayerJails = new HashMap<>();
+    private final Map<UUID, List<CapturePlayersCarryEntry>> capturePlayerStacks = new HashMap<>();
+    private final Map<UUID, UUID> capturePlayerCarrierByPrisoner = new HashMap<>();
+    private final Map<String, Integer> capturePlayerRoundWins = new HashMap<>();
+    private final Map<String, Integer> capturePlayerProgress = new HashMap<>();
     private final Map<UUID, Integer> quakeScores = new HashMap<>();
     private final Map<UUID, BukkitTask> quakeRespawns = new HashMap<>();
     private final Map<UUID, BukkitTask> ctfRespawns = new HashMap<>();
     private final Map<UUID, CtfInventoryLayout> ctfInventoryLayouts = new HashMap<>();
     private final List<UUID> bedWarsShopEntities = new ArrayList<>();
     private final Set<String> bedWarsPlacedBlocks = new HashSet<>();
+    private final Map<UUID, String> bedWarsShopPage = new HashMap<>();
+    private final Map<UUID, String> pendingQuickBuyItem = new HashMap<>();
+    private final Map<UUID, List<String>> quickBuySlots = new HashMap<>();
+    private final Map<UUID, Integer> bedWarsPickaxeTiers = new HashMap<>();
+    private final Map<UUID, Integer> bedWarsAxeTiers = new HashMap<>();
+    private final Map<UUID, Boolean> bedWarsHasShears = new HashMap<>();
+    private final Map<UUID, BukkitTask> bedWarsRespawns = new HashMap<>();
     private final List<String> brokenBedTeams = new ArrayList<>();
     private final Map<String, BlockState> bedWarsTimedBedStates = new HashMap<>();
     private final Map<UUID, Integer> bedWarsArmorTiers = new HashMap<>();
@@ -141,15 +156,18 @@ public final class EventGameplayListener implements Listener {
     private final Map<String, List<String>> bedWarsTraps = new HashMap<>();
     private final Set<String> bedWarsHealPoolTeams = new HashSet<>();
     private final Set<String> bedWarsTriggeredTraps = new HashSet<>();
+    private final Map<String, Integer> bedWarsFeatherFallingLevels = new HashMap<>();
     private final List<UUID> finishOrder = new ArrayList<>();
     private final Map<UUID, Location> redLightLastSafeLocation = new HashMap<>();
     private EventSession trackedSession;
     private BukkitTask tickTask;
     private BukkitTask blockPartyTask;
     private BukkitTask ctfParticleTask;
+    private BukkitTask rlglFastTask;
     private UUID hotPotatoHolder;
     private int hotPotatoSeconds;
     private boolean greenLight;
+    private boolean yellowLight;
     private int redLightSeconds;
     private Material blockPartyTarget;
     private int blockPartySeconds;
@@ -160,8 +178,21 @@ public final class EventGameplayListener implements Listener {
     private int blockPartyClearDelay;
     private int bedWarsGeneratorTicks;
     private boolean bedWarsBedsDestroyedByTimer;
+    private final List<UUID> bedWarsGolems = new ArrayList<>();
+    private final List<UUID> bedWarsSilverfish = new ArrayList<>();
+    private final Map<UUID, UUID> bedWarsProjectiles = new HashMap<>(); // projectile UUID → owner UUID
+    private final Map<UUID, String> bedWarsProjectileType = new HashMap<>(); // projectile UUID → "BED_BUG"|"BRIDGE_EGG"
+    private final Map<UUID, BukkitTask> bridgeEggTasks = new HashMap<>();
     private final Map<UUID, Long> quakeShotCooldowns = new HashMap<>();
     private final Map<UUID, Long> quakeLaunchCooldowns = new HashMap<>();
+
+    private enum CapturePlayersCarryMode {
+        CAPTURE,
+        RESCUE
+    }
+
+    private record CapturePlayersCarryEntry(UUID prisonerId, CapturePlayersCarryMode mode, String jailTeam) {
+    }
 
     public EventGameplayListener(EnthusiaEventsPlugin plugin, EventManager eventManager) {
         this.plugin = plugin;
@@ -172,6 +203,8 @@ public final class EventGameplayListener implements Listener {
         this.shopActionKey = new NamespacedKey(plugin, "bedwars-shop-action");
         this.tickTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickActiveEvent, 20L, 20L);
         this.ctfParticleTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickCaptureTheFlagParticles, 1L, 1L);
+        this.rlglFastTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickRlglFast, 0L, 1L);
+        loadQuickBuySlots();
     }
 
     public void shutdown() {
@@ -297,6 +330,10 @@ public final class EventGameplayListener implements Listener {
         if (map != null && map.region() != null && map.region().contains(event.getBlock().getLocation())
                 && (type == EventType.SKYWARS || type == EventType.BEDWARS)) {
             if (type == EventType.BEDWARS) {
+                if (!bedWarsPlacedBlocks.contains(locationKey(event.getBlock().getLocation()))) {
+                    event.setCancelled(true);
+                    return;
+                }
                 bedWarsPlacedBlocks.remove(locationKey(event.getBlock().getLocation()));
             }
             if (type == EventType.BEDWARS && isBedBlock(event.getBlock().getType())) {
@@ -378,6 +415,14 @@ public final class EventGameplayListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSwapHandItems(PlayerSwapHandItemsEvent event) {
+        EventSession session = eventManager.session();
+        if (session == null || session.definition().type() != EventType.BEDWARS) return;
+        if (!session.participants().contains(event.getPlayer().getUniqueId())) return;
+        event.setCancelled(true);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) {
@@ -396,11 +441,131 @@ public final class EventGameplayListener implements Listener {
         if (clicked == null || !clicked.hasItemMeta()) {
             return;
         }
-        if (BEDWARS_UPGRADE_SHOP_TITLE.equals(title)) {
-            buyBedWarsUpgrade(player, clicked);
+        String action = clicked.getItemMeta().getPersistentDataContainer().get(shopActionKey, PersistentDataType.STRING);
+        if (BEDWARS_ITEM_SHOP_TITLE.equals(title)) {
+            if (action != null && action.startsWith("PAGE:")) {
+                String targetPage = action.substring(5);
+                if (event.isShiftClick() && !"QUICK_BUY".equals(targetPage)) {
+                    // Shift-clicking a category tab doesn't do anything special
+                    bedWarsShopPage.put(player.getUniqueId(), targetPage);
+                    player.openInventory(createBedWarsItemShop(player));
+                    return;
+                }
+                bedWarsShopPage.put(player.getUniqueId(), targetPage);
+                player.openInventory(createBedWarsItemShop(player));
+                return;
+            }
+            if ("QUICK_BUY".equals(bedWarsShopPage.getOrDefault(player.getUniqueId(), "QUICK_BUY"))) {
+                handleQuickBuyClick(player, clicked, event.isShiftClick());
+                return;
+            }
+            if (event.isShiftClick() && action != null) {
+                // Shift-click on category page item: start Quick Buy placement
+                pendingQuickBuyItem.put(player.getUniqueId(), action);
+                bedWarsShopPage.put(player.getUniqueId(), "QUICK_BUY");
+                player.openInventory(createBedWarsItemShop(player));
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Click a Quick Buy slot to place this item.");
+                return;
+            }
+            buyBedWarsShopItem(player, clicked);
             return;
         }
-        buyBedWarsShopItem(player, clicked);
+        if (BEDWARS_UPGRADE_SHOP_TITLE.equals(title)) {
+            if (action != null && action.startsWith("TRAP_REMOVE:")) {
+                String team = session.teams().get(player.getUniqueId());
+                if (team != null) {
+                    String[] parts = action.split(":");
+                    int index = Integer.parseInt(parts[2]);
+                    List<String> traps = bedWarsTraps.get(team);
+                    if (traps != null && index < traps.size()) {
+                        traps.remove(index);
+                        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Trap removed from queue.");
+                        player.openInventory(createBedWarsUpgradeShop(player));
+                    }
+                }
+                return;
+            }
+            buyBedWarsUpgrade(player, clicked);
+        }
+    }
+
+    private void handleQuickBuyClick(Player player, ItemStack clicked, boolean isShiftClick) {
+        String action = clicked.getItemMeta().getPersistentDataContainer().get(shopActionKey, PersistentDataType.STRING);
+        if (action == null) {
+            return;
+        }
+        String pending = pendingQuickBuyItem.remove(player.getUniqueId());
+        if (pending != null) {
+            // We're in placement mode: place the pending item into this slot
+            List<String> slots = quickBuySlots.computeIfAbsent(player.getUniqueId(), uuid -> defaultQuickBuyLayout());
+            // Find which slot this is
+            int slot = findClickSlot(clicked);
+            if (slot >= 0 && slot < 21) {
+                while (slots.size() <= slot) {
+                    slots.add("EMPTY");
+                }
+                slots.set(slot, pending);
+                saveQuickBuySlots();
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Item added to Quick Buy slot " + (slot + 1) + ".");
+                player.openInventory(createBedWarsItemShop(player));
+                return;
+            }
+        }
+        if (isShiftClick) {
+            // Shift-click on Quick Buy slot: remove item
+            List<String> slots = quickBuySlots.computeIfAbsent(player.getUniqueId(), uuid -> defaultQuickBuyLayout());
+            int slot = findClickSlot(clicked);
+            if (slot >= 0 && slot < slots.size()) {
+                slots.set(slot, "EMPTY");
+                saveQuickBuySlots();
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Item removed from Quick Buy slot " + (slot + 1) + ".");
+                player.openInventory(createBedWarsItemShop(player));
+            }
+            return;
+        }
+        // Normal click: buy item
+        if (!"EMPTY".equals(action)) {
+            buyBedWarsShopItem(player, clicked);
+        }
+    }
+
+    private int findClickSlot(ItemStack clicked) {
+        ItemMeta meta = clicked.getItemMeta();
+        if (meta == null) return -1;
+        Integer slot = meta.getPersistentDataContainer().get(new NamespacedKey(plugin, "qb-slot"), PersistentDataType.INTEGER);
+        return slot == null ? -1 : slot;
+    }
+
+    private void saveQuickBuySlots() {
+        java.io.File file = new java.io.File(plugin.getDataFolder(), "bedwars_quickbuy.yml");
+        org.bukkit.configuration.file.YamlConfiguration yaml = new org.bukkit.configuration.file.YamlConfiguration();
+        for (Map.Entry<UUID, List<String>> entry : quickBuySlots.entrySet()) {
+            yaml.set(entry.getKey().toString(), entry.getValue());
+        }
+        try {
+            yaml.save(file);
+        } catch (java.io.IOException e) {
+            plugin.getLogger().warning("Failed to save BedWars Quick Buy data: " + e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void loadQuickBuySlots() {
+        java.io.File file = new java.io.File(plugin.getDataFolder(), "bedwars_quickbuy.yml");
+        if (!file.exists()) {
+            return;
+        }
+        org.bukkit.configuration.file.YamlConfiguration yaml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file);
+        for (String key : yaml.getKeys(false)) {
+            try {
+                UUID uuid = UUID.fromString(key);
+                List<String> slots = yaml.getStringList(key);
+                if (slots != null && !slots.isEmpty()) {
+                    quickBuySlots.put(uuid, new ArrayList<>(slots));
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -421,6 +586,31 @@ public final class EventGameplayListener implements Listener {
             event.setCancelled(true);
             launchBedWarsFireball(event.getPlayer(), event.getItem(), event.getHand());
             return;
+        }
+        if (type == EventType.BEDWARS
+                && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)
+                && event.getItem() != null
+                && event.getItem().getType() == Material.IRON_GOLEM_SPAWN_EGG) {
+            event.setCancelled(true);
+            spawnDreamDefender(event.getPlayer(), event.getItem(), event.getHand());
+            return;
+        }
+        // Track Bed Bug / Bridge Egg projectiles
+        if (type == EventType.BEDWARS
+                && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)
+                && event.getItem() != null) {
+            String trackType = null;
+            if (event.getItem().getType() == Material.SNOWBALL) {
+                trackType = "BED_BUG";
+            } else if (event.getItem().getType() == Material.EGG) {
+                trackType = "BRIDGE_EGG";
+            }
+            if (trackType != null) {
+                // Let vanilla launch happen, but schedule tracking on next tick
+                Player p = event.getPlayer();
+                String finalType = trackType;
+                Bukkit.getScheduler().runTaskLater(plugin, () -> trackThrownProjectile(p, finalType), 0L);
+            }
         }
         if (type == EventType.ELYTRA_RACE
                 && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)
@@ -503,8 +693,32 @@ public final class EventGameplayListener implements Listener {
             }
             return;
         }
+        // BedWars: intercept lethal damage, prevent vanilla death screen
+        if (type == EventType.BEDWARS && player.getHealth() - event.getFinalDamage() <= 0.0D) {
+            event.setCancelled(true);
+            player.setHealth(player.getMaxHealth());
+            String team = session.teams().get(player.getUniqueId());
+            if (team != null && !brokenBedTeams.contains(team)) {
+                // Bed alive: schedule 5-second respawn
+                bedWarsPickaxeTiers.computeIfPresent(player.getUniqueId(), (uuid, tier) -> Math.max(0, tier - 1));
+                bedWarsAxeTiers.computeIfPresent(player.getUniqueId(), (uuid, tier) -> Math.max(0, tier - 1));
+                Player killer = event instanceof EntityDamageByEntityEvent byEntity ? damagingPlayer(byEntity.getDamager()) : null;
+                if (killer != null && session.participants().contains(killer.getUniqueId())) {
+                    transferBedWarsResources(player, killer);
+                    eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " was killed by " + killer.getName() + ".");
+                } else {
+                    eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " died.");
+                }
+                scheduleBedWarsRespawn(session, player);
+            } else {
+                // No bed: eliminate
+                eventManager.eliminateParticipant(player, "final death");
+                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " was eliminated.");
+            }
+            return;
+        }
         if (type == EventType.PARKOUR || type == EventType.BLOCK_PARTY || type == EventType.RED_LIGHT_GREEN_LIGHT
-                || type == EventType.BOAT_RACE || type == EventType.HORSE_RACE || type == EventType.ELYTRA_RACE
+                || type == EventType.BOAT_RACE || type == EventType.HORSE_RACE
                 || (type == EventType.CAPTURE_PLAYERS && !(event instanceof EntityDamageByEntityEvent))) {
             event.setCancelled(true);
             return;
@@ -549,6 +763,37 @@ public final class EventGameplayListener implements Listener {
             event.setDamage(1000.0D);
             return;
         }
+        // BedWars: prevent owner/allies from damaging their own Iron Golems
+        if (type == EventType.BEDWARS && event.getEntity() instanceof IronGolem golem && damager != null) {
+            String golemTeam = golem.getScoreboardTags().stream()
+                    .filter(t -> t.startsWith("bw_owner_"))
+                    .findFirst().orElse(null);
+            String damagerTeam = session.teams().get(damager.getUniqueId());
+            if (golemTeam != null && damagerTeam != null && golemTeam.equals("bw_owner_" + damagerTeam)) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+        // BedWars: cap fireball direct/splash damage to ~3.0 health
+        if (type == EventType.BEDWARS && event.getDamager() instanceof Fireball fireball
+                && fireball.getShooter() instanceof Player
+                && event.getEntity() instanceof Player target) {
+            double cap = plugin.getConfig().getDouble("bedwars.fireball-max-damage", 3.0D);
+            if (event.getFinalDamage() > cap) {
+                event.setDamage(cap);
+            }
+            // Fireball damage goes through normal BedWars death/respawn handling
+            return;
+        }
+        // BedWars: Knockback Stick pushes Iron Golems
+        if (type == EventType.BEDWARS && damager != null && event.getEntity() instanceof IronGolem golem
+                && damager.getInventory().getItemInMainHand().getType() == Material.STICK
+                && damager.getInventory().getItemInMainHand().containsEnchantment(Enchantment.KNOCKBACK)) {
+            Vector knockback = golem.getLocation().toVector().subtract(damager.getLocation().toVector()).normalize().multiply(2.0D).setY(0.6D);
+            golem.setVelocity(knockback);
+            event.setDamage(0.5D); // Minimal damage, mostly knockback
+            return;
+        }
         if (type == EventType.HOT_POTATO && damager != null && event.getEntity() instanceof Player target
                 && session.participants().contains(damager.getUniqueId())
                 && session.participants().contains(target.getUniqueId())
@@ -583,12 +828,56 @@ public final class EventGameplayListener implements Listener {
             transferBedWarsResources(player, killer);
             String team = session.teams().get(player.getUniqueId());
             if (team != null && !brokenBedTeams.contains(team)) {
-                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " died.");
+                // Bed is alive: schedule 5-second respawn
+                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " died. Respawning in 5 seconds.");
+
+                // Downgrade tools
+                bedWarsPickaxeTiers.computeIfPresent(player.getUniqueId(), (uuid, tier) -> Math.max(0, tier - 1));
+                bedWarsAxeTiers.computeIfPresent(player.getUniqueId(), (uuid, tier) -> Math.max(0, tier - 1));
+
+                // Schedule respawn
+                scheduleBedWarsRespawn(session, player);
                 return;
             }
             eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " was eliminated.");
         }
         eventManager.eliminateParticipant(player, "died");
+    }
+
+    private void scheduleBedWarsRespawn(EventSession session, Player player) {
+        if (bedWarsRespawns.containsKey(player.getUniqueId())) {
+            return;
+        }
+        player.setFireTicks(0);
+        player.setFallDistance(0.0F);
+        player.setVelocity(new Vector(0, 0, 0));
+        player.setHealth(player.getMaxHealth());
+        player.setGameMode(GameMode.SPECTATOR);
+        // Force auto-respawn to dismiss vanilla death screen
+        Bukkit.getScheduler().runTask(plugin, () -> player.spigot().respawn());
+        final int[] seconds = {5};
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            EventSession current = eventManager.session();
+            if (current == null || current != session || current.phase() != EventPhase.ACTIVE
+                    || current.definition().type() != EventType.BEDWARS
+                    || !current.participants().contains(player.getUniqueId()) || !player.isOnline()) {
+                BukkitTask currentTask = bedWarsRespawns.remove(player.getUniqueId());
+                if (currentTask != null) currentTask.cancel();
+                return;
+            }
+            if (seconds[0] > 0) {
+                showRespawnCountdown(player, seconds[0], 5, ChatColor.YELLOW);
+                seconds[0]--;
+                return;
+            }
+            BukkitTask currentTask = bedWarsRespawns.remove(player.getUniqueId());
+            if (currentTask != null) currentTask.cancel();
+            EventMap map = current.selectedMap();
+            clearRespawnCountdown(player);
+            respawnBedWarsPlayer(current, map, player);
+            player.setGameMode(GameMode.SURVIVAL);
+        }, 0L, 20L);
+        bedWarsRespawns.put(player.getUniqueId(), task);
     }
 
     @EventHandler
@@ -599,14 +888,17 @@ public final class EventGameplayListener implements Listener {
         }
         EventMap map = session.selectedMap();
         if (session.definition().type() == EventType.BEDWARS && session.participants().contains(event.getPlayer().getUniqueId())) {
+            // If the player has a pending respawn timer, the timer handles everything
+            if (bedWarsRespawns.containsKey(event.getPlayer().getUniqueId())) {
+                return;
+            }
             Location spawn = bedWarsRespawn(session, map, event.getPlayer());
             if (spawn != null) {
                 event.setRespawnLocation(spawn);
             }
             Bukkit.getScheduler().runTask(plugin, () -> {
                 event.getPlayer().setGameMode(GameMode.SURVIVAL);
-                clearBedWarsInventory(event.getPlayer());
-                applyBedWarsArmor(event.getPlayer());
+                respawnBedWarsPlayer(session, map, event.getPlayer());
             });
             return;
         }
@@ -623,7 +915,26 @@ public final class EventGameplayListener implements Listener {
     public void onProjectileHit(ProjectileHitEvent event) {
         EventSession session = eventManager.session();
         ensureSession(session);
-        if (session == null || session.phase() != EventPhase.ACTIVE || session.definition().type() != EventType.SPLEEG) {
+        if (session == null || session.phase() != EventPhase.ACTIVE) {
+            return;
+        }
+        // BedWars Bed Bug / Bridge Egg handling
+        if (session.definition().type() == EventType.BEDWARS) {
+            UUID projectileId = event.getEntity().getUniqueId();
+            String pType = bedWarsProjectileType.remove(projectileId);
+            UUID ownerId = bedWarsProjectiles.remove(projectileId);
+            if (pType == null) return;
+            Player owner = ownerId == null ? null : Bukkit.getPlayer(ownerId);
+            if ("BED_BUG".equals(pType) && event.getEntity() instanceof Snowball snowball) {
+                spawnBedBugSilverfish(owner, snowball.getLocation());
+            } else if ("BRIDGE_EGG".equals(pType)) {
+                BukkitTask task = bridgeEggTasks.remove(projectileId);
+                if (task != null) task.cancel();
+                placeBridgeEggBlocks(session, owner, event.getEntity().getLocation());
+            }
+            return;
+        }
+        if (session.definition().type() != EventType.SPLEEG) {
             return;
         }
         if (!(event.getEntity() instanceof Snowball)) {
@@ -658,7 +969,10 @@ public final class EventGameplayListener implements Listener {
         ctfRespawns.values().forEach(BukkitTask::cancel);
         ctfRespawns.clear();
         ctfInventoryLayouts.clear();
+        bedWarsRespawns.values().forEach(BukkitTask::cancel);
+        bedWarsRespawns.clear();
         removeBedWarsShops();
+        clearBedWarsEntities();
         bedWarsPlacedBlocks.clear();
         restoreTimedBedWarsBeds();
         bedWarsArmorTiers.clear();
@@ -669,16 +983,24 @@ public final class EventGameplayListener implements Listener {
         bedWarsTraps.clear();
         bedWarsHealPoolTeams.clear();
         bedWarsTriggeredTraps.clear();
+        bedWarsFeatherFallingLevels.clear();
         bedWarsBedsDestroyedByTimer = false;
+        bedWarsShopPage.clear();
+        pendingQuickBuyItem.clear();
+        bedWarsPickaxeTiers.clear();
+        bedWarsAxeTiers.clear();
+        bedWarsHasShears.clear();
+        saveQuickBuySlots();
         clearDroppedEventItems(trackedSession == null ? null : trackedSession.selectedMap());
-        capturedPlayers.clear();
-        capturePlayerScores.clear();
+        clearEventContainers(trackedSession == null ? null : trackedSession.selectedMap());
+        clearCapturePlayersState();
         brokenBedTeams.clear();
         finishOrder.clear();
         redLightLastSafeLocation.clear();
         hotPotatoHolder = null;
         hotPotatoSeconds = 0;
         greenLight = false;
+        yellowLight = false;
         redLightSeconds = 0;
         blockPartyTarget = null;
         blockPartySeconds = 0;
@@ -697,6 +1019,46 @@ public final class EventGameplayListener implements Listener {
         trackedSession = null;
     }
 
+    private void clearCapturePlayersState() {
+        for (UUID carrierId : List.copyOf(capturePlayerStacks.keySet())) {
+            Player carrier = Bukkit.getPlayer(carrierId);
+            if (carrier != null) {
+                carrier.eject();
+            }
+        }
+        for (UUID prisonerId : List.copyOf(capturePlayerCarrierByPrisoner.keySet())) {
+            Player prisoner = Bukkit.getPlayer(prisonerId);
+            if (prisoner != null) {
+                prisoner.leaveVehicle();
+                restoreCapturePlayerState(prisoner);
+            }
+        }
+        capturePlayerJails.clear();
+        capturePlayerStacks.clear();
+        capturePlayerCarrierByPrisoner.clear();
+        capturePlayerRoundWins.clear();
+        capturePlayerProgress.clear();
+    }
+
+    private void clearEventContainers(EventMap map) {
+        if (map == null || map.region() == null) {
+            return;
+        }
+        org.bukkit.World world = Bukkit.getWorld(map.worldName());
+        if (world == null) {
+            return;
+        }
+        for (Map.Entry<Integer, List<Location>> entry : map.chests().entrySet()) {
+            for (Location location : entry.getValue()) {
+                if (location == null || location.getWorld() == null) continue;
+                BlockState state = location.getBlock().getState();
+                if (state instanceof org.bukkit.block.Container container) {
+                    container.getInventory().clear();
+                }
+            }
+        }
+    }
+
     private void tickActiveEvent() {
         EventSession session = eventManager.session();
         ensureSession(session);
@@ -705,13 +1067,15 @@ public final class EventGameplayListener implements Listener {
         }
         switch (session.definition().type()) {
             case HOT_POTATO -> tickHotPotato(session);
-            case RED_LIGHT_GREEN_LIGHT -> tickRedLightGreenLight(session);
+            case RED_LIGHT_GREEN_LIGHT -> checkRlglMovement(session);
             case BLOCK_PARTY -> ensureBlockPartyTask();
             case CAPTURE_THE_FLAG -> ensureCaptureTheFlagBlocks(session.selectedMap());
+            case CAPTURE_PLAYERS -> tickCapturePlayers(session);
             case BEDWARS -> {
                 tickBedWarsGenerators(session);
                 ensureBedWarsShops(session);
                 tickBedWarsUpgrades(session);
+                tickBedWarsShopLookAt(session);
                 destroyBedWarsBedsOnTimer(session);
             }
             default -> {
@@ -736,7 +1100,10 @@ public final class EventGameplayListener implements Listener {
             respawnRace(player, map);
             return;
         }
-        if (sameWorld(safe, checkLocation) && (checkLocation.getY() < safe.getY() - fallDistance || checkLocation.getY() <= player.getWorld().getMinHeight() + 2)) {
+        // Elytra race only respawns on death or manual trigger, not on low altitude
+        if (type != EventType.ELYTRA_RACE
+                && sameWorld(safe, checkLocation)
+                && (checkLocation.getY() < safe.getY() - fallDistance || checkLocation.getY() <= player.getWorld().getMinHeight() + 2)) {
             respawnRace(player, map);
             return;
         }
@@ -1082,7 +1449,8 @@ public final class EventGameplayListener implements Listener {
                 clearCtfProgress(player, flagTeam);
                 continue;
             }
-            if (contestedFlag(session, location, ownTeam)) {
+            // Only check contesting when flag is dropped, not at original spawn
+            if (ctfDroppedFlags.containsKey(flagTeam) && contestedFlag(session, location, ownTeam)) {
                 clearCtfProgress(player, flagTeam);
                 sendActionBar(player, ChatColor.RED + "Flag area contested");
                 continue;
@@ -1530,29 +1898,28 @@ public final class EventGameplayListener implements Listener {
         if (session == null) {
             return;
         }
+        if (capturePlayerCarrierByPrisoner.containsKey(player.getUniqueId())) {
+            return;
+        }
         String playerTeam = session.teams().getOrDefault(player.getUniqueId(), "1");
-        if (capturedPlayers.containsKey(player.getUniqueId())) {
-            CuboidRegion jail = teamArea(map, "jail", playerTeam);
+        String jailTeam = capturePlayerJails.get(player.getUniqueId());
+        if (jailTeam != null) {
+            CuboidRegion jail = teamArea(map, "jail", jailTeam);
             Location jailLocation = jail == null ? center(map.areas().get("jail-zone")) : center(jail);
             if (jailLocation != null && (jail == null || !jail.contains(to))) {
                 TeleportService.teleport(plugin, player, jailLocation, "capture players jail return");
             }
             return;
         }
-        if (!inArea(map, "free-zone", to)) {
+        List<CapturePlayersCarryEntry> carried = capturePlayerStacks.getOrDefault(player.getUniqueId(), List.of());
+        if (!carried.isEmpty() && carried.getFirst().mode() == CapturePlayersCarryMode.RESCUE
+                && inArea(map, "capture-zone-" + playerTeam, to)) {
+            deliverRescuedTeammates(session, map, player, carried);
             return;
         }
-        for (Map.Entry<UUID, String> entry : List.copyOf(capturedPlayers.entrySet())) {
-            if (!entry.getValue().equals(playerTeam)) {
-                continue;
-            }
-            Player prisoner = Bukkit.getPlayer(entry.getKey());
-            if (prisoner == null) {
-                continue;
-            }
-            capturedPlayers.remove(entry.getKey());
-            respawnCapturePlayer(session, map, prisoner, "You were freed by " + player.getName() + ".");
-            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "You freed " + prisoner.getName() + ".");
+        if (!carried.isEmpty() && carried.getFirst().mode() == CapturePlayersCarryMode.CAPTURE
+                && inArea(map, "capture-zone-" + playerTeam, to)) {
+            jailCarriedEnemies(session, map, player, playerTeam, carried);
         }
     }
 
@@ -1563,12 +1930,16 @@ public final class EventGameplayListener implements Listener {
         }
         String targetTeam = session.teams().getOrDefault(target.getUniqueId(), "1");
         String damagerTeam = session.teams().getOrDefault(damager.getUniqueId(), "2");
-        if (targetTeam.equals(damagerTeam) || capturedPlayers.containsKey(target.getUniqueId())) {
+        if (targetTeam.equals(damagerTeam)
+                || capturePlayerJails.containsKey(target.getUniqueId())
+                || capturePlayerJails.containsKey(damager.getUniqueId())
+                || capturePlayerCarrierByPrisoner.containsKey(target.getUniqueId())
+                || capturePlayerCarrierByPrisoner.containsKey(damager.getUniqueId())
+                || isCapturePlayersRescueCarrier(damager.getUniqueId())) {
             event.setCancelled(true);
             return;
         }
         if (target.getHealth() - event.getFinalDamage() > 0.0D) {
-            event.setDamage(Math.min(event.getDamage(), 2.0D));
             return;
         }
         event.setCancelled(true);
@@ -1576,31 +1947,13 @@ public final class EventGameplayListener implements Listener {
         if (map == null) {
             return;
         }
-        capturedPlayers.put(target.getUniqueId(), targetTeam);
-        int score = capturePlayerScores.merge(damagerTeam, 1, Integer::sum);
-        jailCapturePlayer(map, target, targetTeam);
+        releaseCapturePlayersStack(session, map, target, true);
+        attachCapturePlayer(target, damager, CapturePlayersCarryMode.CAPTURE, null);
+        target.setHealth(target.getMaxHealth());
+        target.setFoodLevel(20);
+        target.setFireTicks(0);
         eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + damager.getName()
-                + " captured " + target.getName() + " for Team " + damagerTeam + " (" + score + "/5).");
-        if (score >= plugin.getConfig().getInt("capture-players.captures-to-win", 5)) {
-            List<UUID> winners = session.teams().entrySet().stream()
-                    .filter(entry -> damagerTeam.equals(entry.getValue()))
-                    .map(Map.Entry::getKey)
-                    .filter(session.participants()::contains)
-                    .toList();
-            eventManager.endActiveEvent(winners.isEmpty() ? List.of(damager.getUniqueId()) : winners);
-        }
-    }
-
-    private void jailCapturePlayer(EventMap map, Player player, String team) {
-        player.setHealth(player.getMaxHealth());
-        player.setFoodLevel(20);
-        player.setFireTicks(0);
-        CuboidRegion jail = teamArea(map, "jail", team);
-        Location location = jail == null ? center(map.areas().get("jail-zone")) : center(jail);
-        if (location != null) {
-            TeleportService.teleport(plugin, player, location, "capture players jail");
-        }
-        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You were captured. Wait for a teammate to free you.");
+                + " captured " + target.getName() + ". Bring them to " + displayTeam(damagerTeam) + "'s capture zone.");
     }
 
     private void respawnCapturePlayer(EventSession session, EventMap map, Player player, String message) {
@@ -1609,12 +1962,348 @@ public final class EventGameplayListener implements Listener {
         if (spawn == null && !map.spawns().isEmpty()) {
             spawn = map.spawns().values().iterator().next();
         }
+        restoreCapturePlayerState(player);
+        applyCapturePlayersLoadout(player, team);
         player.setHealth(player.getMaxHealth());
         player.setFoodLevel(20);
+        player.setSaturation(10.0F);
+        player.setGameMode(GameMode.SURVIVAL);
         if (spawn != null) {
             TeleportService.teleport(plugin, player, spawn, "capture players respawn");
         }
         player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GRAY + message);
+    }
+
+    private void tickCapturePlayers(EventSession session) {
+        EventMap map = session.selectedMap();
+        if (map == null) {
+            return;
+        }
+        updateCapturePlayersRoundScoreboard(session);
+        for (UUID uuid : session.participants()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player == null) {
+                continue;
+            }
+            handleCapturePlayersZoneProgress(session, map, player);
+        }
+        checkCapturePlayersRoundWin(session, map);
+    }
+
+    private void handleCapturePlayersZoneProgress(EventSession session, EventMap map, Player player) {
+        if (capturePlayerJails.containsKey(player.getUniqueId())
+                || capturePlayerCarrierByPrisoner.containsKey(player.getUniqueId())) {
+            clearCapturePlayersProgress(player.getUniqueId());
+            return;
+        }
+        String playerTeam = session.teams().getOrDefault(player.getUniqueId(), "1");
+        List<CapturePlayersCarryEntry> stack = capturePlayerStacks.getOrDefault(player.getUniqueId(), List.of());
+        if (stack.isEmpty()) {
+            for (String jailTeam : capturePlayersConfiguredTeams(session, map)) {
+                if (jailTeam.equals(playerTeam)) {
+                    continue;
+                }
+                if (!inArea(map, "free-zone-" + jailTeam, player.getLocation())) {
+                    continue;
+                }
+                UUID teammate = jailedTeammateInTeamJail(session, playerTeam, jailTeam);
+                if (teammate == null) {
+                    continue;
+                }
+                String key = progressKey(player.getUniqueId(), "rescue-" + jailTeam);
+                int progress = capturePlayerProgress.merge(key, 1, Integer::sum);
+                player.sendActionBar(ChatColor.GREEN + "Rescuing teammate " + capturePlayersProgressBar(progress, 5));
+                if (progress >= 5) {
+                    capturePlayerProgress.remove(key);
+                    pickUpJailedTeammate(session, map, player, teammate, jailTeam);
+                }
+                return;
+            }
+            clearCapturePlayersProgress(player.getUniqueId());
+            return;
+        }
+        clearCapturePlayersProgress(player.getUniqueId());
+    }
+
+    private void pickUpJailedTeammate(EventSession session, EventMap map, Player rescuer, UUID teammateId, String jailTeam) {
+        Player teammate = Bukkit.getPlayer(teammateId);
+        if (teammate == null) {
+            return;
+        }
+        attachCapturePlayer(teammate, rescuer, CapturePlayersCarryMode.RESCUE, jailTeam);
+        rescuer.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "You picked up " + teammate.getName()
+                + ". Bring them to " + displayTeam(session.teams().getOrDefault(rescuer.getUniqueId(), "1")) + "'s capture zone.");
+        teammate.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + rescuer.getName()
+                + " is carrying you back to safety.");
+    }
+
+    private void jailCarriedEnemies(EventSession session, EventMap map, Player carrier, String jailTeam, List<CapturePlayersCarryEntry> carried) {
+        clearCapturePlayersProgress(carrier.getUniqueId());
+        dismountCapturePlayersStack(carrier.getUniqueId());
+        for (CapturePlayersCarryEntry entry : carried) {
+            Player prisoner = Bukkit.getPlayer(entry.prisonerId());
+            if (prisoner == null) {
+                continue;
+            }
+            capturePlayerJails.put(prisoner.getUniqueId(), jailTeam);
+            sendCapturePlayerToJail(map, prisoner, jailTeam);
+            prisoner.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You were jailed by " + displayTeam(jailTeam) + ".");
+        }
+        eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + carrier.getName()
+                + " jailed " + carried.size() + " player" + (carried.size() == 1 ? "" : "s") + " for " + displayTeam(jailTeam) + ".");
+        checkCapturePlayersRoundWin(session, map);
+    }
+
+    private void deliverRescuedTeammates(EventSession session, EventMap map, Player carrier, List<CapturePlayersCarryEntry> carried) {
+        clearCapturePlayersProgress(carrier.getUniqueId());
+        dismountCapturePlayersStack(carrier.getUniqueId());
+        for (CapturePlayersCarryEntry entry : carried) {
+            if (entry.mode() != CapturePlayersCarryMode.RESCUE) {
+                continue;
+            }
+            capturePlayerJails.remove(entry.prisonerId());
+            Player prisoner = Bukkit.getPlayer(entry.prisonerId());
+            if (prisoner != null) {
+                respawnCapturePlayer(session, map, prisoner, "You were rescued by " + carrier.getName() + ".");
+            }
+        }
+        carrier.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Rescue delivered.");
+    }
+
+    private void sendCapturePlayerToJail(EventMap map, Player prisoner, String jailTeam) {
+        restoreCapturePlayerState(prisoner);
+        EventSession session = eventManager.session();
+        String prisonerTeam = session == null ? "1" : session.teams().getOrDefault(prisoner.getUniqueId(), "1");
+        applyCapturePlayersLoadout(prisoner, prisonerTeam);
+        prisoner.setHealth(prisoner.getMaxHealth());
+        prisoner.setFoodLevel(20);
+        prisoner.setSaturation(10.0F);
+        prisoner.setGameMode(GameMode.ADVENTURE);
+        CuboidRegion jail = teamArea(map, "jail", jailTeam);
+        Location location = jail == null ? center(map.areas().get("jail-zone")) : center(jail);
+        if (location != null) {
+            TeleportService.teleport(plugin, prisoner, location, "capture players jail");
+        }
+    }
+
+    private void attachCapturePlayer(Player prisoner, Player carrier, CapturePlayersCarryMode mode, String jailTeam) {
+        restoreCapturePlayerState(prisoner);
+        prisoner.leaveVehicle();
+        prisoner.setInvulnerable(true);
+        prisoner.setGameMode(GameMode.ADVENTURE);
+        prisoner.setHealth(prisoner.getMaxHealth());
+        prisoner.setFoodLevel(20);
+        prisoner.setSaturation(10.0F);
+        prisoner.setVelocity(new Vector(0, 0, 0));
+        capturePlayerCarrierByPrisoner.put(prisoner.getUniqueId(), carrier.getUniqueId());
+        capturePlayerStacks.computeIfAbsent(carrier.getUniqueId(), ignored -> new ArrayList<>())
+                .add(new CapturePlayersCarryEntry(prisoner.getUniqueId(), mode, jailTeam));
+        rebuildCapturePlayersStack(carrier.getUniqueId());
+    }
+
+    private void rebuildCapturePlayersStack(UUID carrierId) {
+        Player carrier = Bukkit.getPlayer(carrierId);
+        if (carrier == null) {
+            return;
+        }
+        List<CapturePlayersCarryEntry> stack = capturePlayerStacks.get(carrierId);
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        carrier.eject();
+        Entity mount = carrier;
+        for (CapturePlayersCarryEntry entry : stack) {
+            Player prisoner = Bukkit.getPlayer(entry.prisonerId());
+            if (prisoner == null) {
+                continue;
+            }
+            prisoner.leaveVehicle();
+            mount.addPassenger(prisoner);
+            mount = prisoner;
+        }
+    }
+
+    private void releaseCapturePlayersStack(EventSession session, EventMap map, Player carrier, boolean respawnCapturedPlayers) {
+        List<CapturePlayersCarryEntry> stack = capturePlayerStacks.remove(carrier.getUniqueId());
+        carrier.eject();
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        for (CapturePlayersCarryEntry entry : stack) {
+            capturePlayerCarrierByPrisoner.remove(entry.prisonerId());
+            Player prisoner = Bukkit.getPlayer(entry.prisonerId());
+            if (prisoner == null) {
+                continue;
+            }
+            prisoner.leaveVehicle();
+            if (entry.mode() == CapturePlayersCarryMode.RESCUE && entry.jailTeam() != null) {
+                capturePlayerJails.put(prisoner.getUniqueId(), entry.jailTeam());
+                sendCapturePlayerToJail(map, prisoner, entry.jailTeam());
+                prisoner.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "Your rescuer was killed. You were sent back to jail.");
+                continue;
+            }
+            if (respawnCapturedPlayers) {
+                respawnCapturePlayer(session, map, prisoner, carrier.getName() + " was killed, so you escaped.");
+            }
+        }
+    }
+
+    private void dismountCapturePlayersStack(UUID carrierId) {
+        List<CapturePlayersCarryEntry> stack = capturePlayerStacks.remove(carrierId);
+        if (stack == null) {
+            return;
+        }
+        for (CapturePlayersCarryEntry entry : stack) {
+            capturePlayerCarrierByPrisoner.remove(entry.prisonerId());
+            Player prisoner = Bukkit.getPlayer(entry.prisonerId());
+            if (prisoner != null) {
+                prisoner.leaveVehicle();
+                restoreCapturePlayerState(prisoner);
+            }
+        }
+    }
+
+    private void restoreCapturePlayerState(Player player) {
+        player.setInvulnerable(false);
+        if (player.getGameMode() == GameMode.ADVENTURE) {
+            player.setGameMode(GameMode.SURVIVAL);
+        }
+    }
+
+    private boolean isCapturePlayersRescueCarrier(UUID playerId) {
+        List<CapturePlayersCarryEntry> stack = capturePlayerStacks.get(playerId);
+        return stack != null && !stack.isEmpty() && stack.getFirst().mode() == CapturePlayersCarryMode.RESCUE;
+    }
+
+    private UUID jailedTeammateInTeamJail(EventSession session, String playerTeam, String jailTeam) {
+        for (UUID uuid : session.participants()) {
+            if (!playerTeam.equals(session.teams().getOrDefault(uuid, ""))) {
+                continue;
+            }
+            if (jailTeam.equals(capturePlayerJails.get(uuid))) {
+                return uuid;
+            }
+        }
+        return null;
+    }
+
+    private void checkCapturePlayersRoundWin(EventSession session, EventMap map) {
+        List<String> teams = capturePlayersConfiguredTeams(session, map);
+        if (teams.size() < 2) {
+            return;
+        }
+        List<String> survivingTeams = new ArrayList<>();
+        for (String team : teams) {
+            boolean allJailed = session.participants().stream()
+                    .filter(uuid -> team.equals(session.teams().getOrDefault(uuid, "")))
+                    .allMatch(capturePlayerJails::containsKey);
+            if (!allJailed) {
+                survivingTeams.add(team);
+            }
+        }
+        if (survivingTeams.size() != 1) {
+            return;
+        }
+        String winnerTeam = survivingTeams.getFirst();
+        int roundsToWin = plugin.getConfig().getInt("capture-players.rounds-to-win", 3);
+        int wins = capturePlayerRoundWins.merge(winnerTeam, 1, Integer::sum);
+        updateCapturePlayersRoundScoreboard(session);
+        eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN
+                + displayTeam(winnerTeam) + " won round " + (capturePlayerRoundWins.values().stream().mapToInt(Integer::intValue).sum()) + ".");
+        if (wins >= roundsToWin) {
+            List<UUID> winners = session.teams().entrySet().stream()
+                    .filter(entry -> winnerTeam.equals(entry.getValue()) && session.participants().contains(entry.getKey()))
+                    .map(Map.Entry::getKey)
+                    .toList();
+            eventManager.endActiveEvent(winners);
+            return;
+        }
+        resetCapturePlayersRound(session, map);
+    }
+
+    private void resetCapturePlayersRound(EventSession session, EventMap map) {
+        clearCapturePlayersProgress(null);
+        for (UUID carrierId : List.copyOf(capturePlayerStacks.keySet())) {
+            Player carrier = Bukkit.getPlayer(carrierId);
+            if (carrier != null) {
+                releaseCapturePlayersStack(session, map, carrier, true);
+            } else {
+                capturePlayerStacks.remove(carrierId);
+            }
+        }
+        capturePlayerJails.clear();
+        for (UUID uuid : session.participants()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player == null) {
+                continue;
+            }
+            respawnCapturePlayer(session, map, player, "Next round.");
+        }
+        updateCapturePlayersRoundScoreboard(session);
+    }
+
+    private void updateCapturePlayersRoundScoreboard(EventSession session) {
+        List<String> teams = session.teams().values().stream().distinct().sorted().toList();
+        int round = capturePlayerRoundWins.values().stream().mapToInt(Integer::intValue).sum() + 1;
+        eventManager.setRuntimeScoreboardValue("capture-players-round", String.valueOf(round));
+        for (String team : teams) {
+            eventManager.setRuntimeScoreboardValue("capture-players-round-win-" + team.toLowerCase(Locale.ROOT),
+                    String.valueOf(capturePlayerRoundWins.getOrDefault(team, 0)));
+            long jailed = session.participants().stream()
+                    .filter(uuid -> team.equals(session.teams().getOrDefault(uuid, "")))
+                    .filter(capturePlayerJails::containsKey)
+                    .count();
+            eventManager.setRuntimeScoreboardValue("capture-players-jailed-" + team.toLowerCase(Locale.ROOT), String.valueOf(jailed));
+        }
+    }
+
+    private List<String> capturePlayersConfiguredTeams(EventSession session, EventMap map) {
+        List<String> configured = map.spawns().keySet().stream()
+                .filter(key -> key.startsWith("team-") && key.endsWith("-spawn"))
+                .map(key -> key.substring("team-".length(), key.length() - "-spawn".length()))
+                .distinct()
+                .sorted()
+                .toList();
+        if (!configured.isEmpty()) {
+            return configured;
+        }
+        return session.teams().values().stream().distinct().sorted().toList();
+    }
+
+    private void applyCapturePlayersLoadout(Player player, String team) {
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(null);
+        player.getInventory().setItemInOffHand(null);
+        player.getInventory().setHelmet(leatherArmor(Material.LEATHER_HELMET, teamLeatherColor(team == null || team.isBlank() ? "1" : team)));
+        player.getInventory().setChestplate(new ItemStack(Material.DIAMOND_CHESTPLATE));
+        player.getInventory().setLeggings(new ItemStack(Material.IRON_LEGGINGS));
+        player.getInventory().setBoots(new ItemStack(Material.DIAMOND_BOOTS));
+        player.getInventory().addItem(namedItem(Material.NETHERITE_SWORD, "Capture Sword"));
+        player.getInventory().addItem(namedItem(Material.IRON_AXE, "Capture Axe"));
+        player.getInventory().addItem(new ItemStack(Material.GOLDEN_APPLE, 2));
+        player.getInventory().addItem(new ItemStack(Material.COOKED_BEEF, 8));
+        player.getInventory().setItemInOffHand(namedItem(Material.SHIELD, "Capture Shield"));
+    }
+
+    private String capturePlayersProgressBar(int progress, int total) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < total; i++) {
+            builder.append(i < progress ? ChatColor.GREEN : ChatColor.DARK_GRAY).append('|');
+        }
+        return builder.toString();
+    }
+
+    private String progressKey(UUID playerId, String action) {
+        return playerId + ":" + action;
+    }
+
+    private void clearCapturePlayersProgress(UUID playerId) {
+        if (playerId == null) {
+            capturePlayerProgress.clear();
+            return;
+        }
+        String prefix = playerId + ":";
+        capturePlayerProgress.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     private Location safeLocation(Player player, EventMap map) {
@@ -1691,27 +2380,80 @@ public final class EventGameplayListener implements Listener {
         }
     }
 
-    private void tickRedLightGreenLight(EventSession session) {
-        redLightSeconds--;
-        if (redLightSeconds <= 0) {
-            greenLight = !greenLight;
-            redLightSeconds = greenLight ? 5 : 4;
-            redLightLastSafeLocation.clear();
-            EventMap map = session.selectedMap();
-            if (map != null) {
-                fillArea(map.areas().get("light-display"), greenLight ? Material.LIME_CONCRETE : Material.RED_CONCRETE);
-            }
-            String state = greenLight ? ChatColor.GREEN + "Green light." : ChatColor.RED + "Red light. Stop moving.";
-            eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + state);
-            for (UUID uuid : session.participants()) {
-                Player player = Bukkit.getPlayer(uuid);
-                if (player != null) {
-                    redLightLastSafeLocation.put(uuid, player.getLocation().clone());
-                }
-            }
+    private void tickRlglFast() {
+        EventSession session = eventManager.session();
+        if (session == null || session.phase() != EventPhase.ACTIVE
+                || session.definition().type() != EventType.RED_LIGHT_GREEN_LIGHT) {
             return;
         }
-        if (greenLight) {
+        redLightSeconds--;
+        if (redLightSeconds <= 0) {
+            if (greenLight) {
+                // Green → Yellow transition (10 ticks / 0.5s)
+                greenLight = false;
+                yellowLight = true;
+                redLightSeconds = 10;
+                redLightLastSafeLocation.clear();
+                EventMap map = session.selectedMap();
+                if (map != null) {
+                    fillArea(map.areas().get("light-display"), Material.YELLOW_CONCRETE);
+                }
+                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Yellow light. Get ready to stop.");
+                playForParticipants(session, Sound.BLOCK_NOTE_BLOCK_PLING, 0.7F, 0.6F);
+                for (UUID uuid : session.participants()) {
+                    Player player = Bukkit.getPlayer(uuid);
+                    if (player != null) {
+                        redLightLastSafeLocation.put(uuid, player.getLocation().clone());
+                    }
+                }
+                return;
+            } else if (yellowLight) {
+                // Yellow → Red transition
+                yellowLight = false;
+                redLightSeconds = 4 * 20; // 4 seconds
+                redLightLastSafeLocation.clear();
+                EventMap map = session.selectedMap();
+                if (map != null) {
+                    fillArea(map.areas().get("light-display"), Material.RED_CONCRETE);
+                }
+                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + "Red light. Stop moving.");
+                playForParticipants(session, Sound.BLOCK_NOTE_BLOCK_BASS, 0.8F, 0.5F);
+                for (UUID uuid : session.participants()) {
+                    Player player = Bukkit.getPlayer(uuid);
+                    if (player != null) {
+                        redLightLastSafeLocation.put(uuid, player.getLocation().clone());
+                    }
+                }
+                return;
+            } else {
+                // Red → Green transition, biased toward 3-4 seconds
+                yellowLight = false;
+                greenLight = true;
+                int r = ThreadLocalRandom.current().nextInt(100);
+                if (r < 15) redLightSeconds = 1 * 20 + ThreadLocalRandom.current().nextInt(0, 10);
+                else if (r < 35) redLightSeconds = 2 * 20 + ThreadLocalRandom.current().nextInt(0, 10);
+                else if (r < 75) redLightSeconds = 3 * 20 + ThreadLocalRandom.current().nextInt(0, 10);
+                else redLightSeconds = 4 * 20 + ThreadLocalRandom.current().nextInt(0, 10);
+                redLightLastSafeLocation.clear();
+                EventMap map = session.selectedMap();
+                if (map != null) {
+                    fillArea(map.areas().get("light-display"), Material.LIME_CONCRETE);
+                }
+                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Green light.");
+                for (UUID uuid : session.participants()) {
+                    Player player = Bukkit.getPlayer(uuid);
+                    if (player != null) {
+                        redLightLastSafeLocation.put(uuid, player.getLocation().clone());
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    private void checkRlglMovement(EventSession session) {
+        // Only eliminate during RED light
+        if (greenLight || yellowLight) {
             return;
         }
         for (UUID uuid : List.copyOf(session.participants())) {
@@ -1721,10 +2463,15 @@ public final class EventGameplayListener implements Listener {
                 continue;
             }
             Location now = player.getLocation();
-            if (previous.getWorld() != null && now.getWorld() != null && previous.getWorld().getUID().equals(now.getWorld().getUID())
-                    && (Math.abs(previous.getX() - now.getX()) > 0.12D || Math.abs(previous.getY() - now.getY()) > 0.12D
-                    || Math.abs(previous.getZ() - now.getZ()) > 0.12D)) {
-                eventManager.eliminateParticipant(player, "moved on red light");
+            if (previous.getWorld() != null && now.getWorld() != null && previous.getWorld().getUID().equals(now.getWorld().getUID())) {
+                double dx = Math.abs(previous.getX() - now.getX());
+                double dy = Math.abs(previous.getY() - now.getY());
+                double dz = Math.abs(previous.getZ() - now.getZ());
+                // Ignore yaw/pitch rotation; only check physical position
+                // Increased tolerance to prevent head-turn foot jitter from eliminating
+                if (dx > 0.35D || dy > 0.35D || dz > 0.35D) {
+                    eventManager.eliminateParticipant(player, "moved on red light");
+                }
             }
         }
     }
@@ -1837,40 +2584,105 @@ public final class EventGameplayListener implements Listener {
         map.generators().forEach((type, locations) -> {
             String lower = type.toLowerCase(Locale.ROOT);
             Material material;
+            int interval;
             if (lower.equals("solo") || lower.equals("team") || lower.startsWith("solo-") || lower.startsWith("team-")) {
                 String team = lower.contains("-") ? lower.substring(lower.indexOf('-') + 1) : "";
                 int forge = bedWarsForgeLevels.getOrDefault(team, 0);
-                int interval = forge >= 1 ? 1 : 2;
-                if (bedWarsGeneratorTicks % interval != 0) {
-                    return;
+                // Iron: every 1 second
+                if (bedWarsGeneratorTicks % 1 == 0) {
+                    for (Location location : locations) {
+                        if (location != null && location.getWorld() != null) {
+                            spawnGeneratorDrop(location, new ItemStack(Material.IRON_INGOT));
+                        }
+                    }
                 }
-                if (forge >= 3 && bedWarsGeneratorTicks % 20 == 0) {
-                    material = Material.EMERALD;
-                } else {
-                    int goldInterval = forge >= 2 ? 4 : 8;
-                    material = bedWarsGeneratorTicks % goldInterval == 0 ? Material.GOLD_INGOT : Material.IRON_INGOT;
+                // Gold: every 7 seconds, faster with forge
+                int goldInterval = switch (forge) {
+                    case 0 -> 7;
+                    case 1 -> 5;
+                    case 2 -> 4;
+                    case 3, 4 -> 3;
+                    default -> 7;
+                };
+                if (bedWarsGeneratorTicks % goldInterval == 0) {
+                    for (Location location : locations) {
+                        if (location != null && location.getWorld() != null) {
+                            spawnGeneratorDrop(location, new ItemStack(Material.GOLD_INGOT));
+                        }
+                    }
                 }
-            } else if (lower.equals("diamond")) {
-                if (bedWarsGeneratorTicks % 2 != 0) {
-                    return;
+                // Emerald: only if forge >=3
+                if (forge >= 3) {
+                    int emeraldInterval = forge == 3 ? 30 : 20; // 30s or 20s
+                    if (bedWarsGeneratorTicks % emeraldInterval == 0) {
+                        for (Location location : locations) {
+                            if (location != null && location.getWorld() != null) {
+                                spawnGeneratorDrop(location, new ItemStack(Material.EMERALD));
+                            }
+                        }
+                    }
                 }
+            } else if (lower.equals("diamond") || lower.startsWith("diamond-")) {
                 material = Material.DIAMOND;
-            } else if (lower.equals("emerald")) {
-                if (bedWarsGeneratorTicks % 2 != 0) {
-                    return;
+                int diamondTier = lower.contains("-") ? Integer.parseInt(lower.substring(lower.indexOf('-') + 1)) : 1;
+                interval = switch (diamondTier) {
+                    case 2 -> plugin.getConfig().getInt("bedwars.generator-intervals.diamond-tier2", 22);
+                    case 3 -> plugin.getConfig().getInt("bedwars.generator-intervals.diamond-tier3", 15);
+                    default -> plugin.getConfig().getInt("bedwars.generator-intervals.diamond", 30);
+                };
+                if (bedWarsGeneratorTicks % interval == 0) {
+                    for (Location location : locations) {
+                        if (location != null && location.getWorld() != null) {
+                            spawnGeneratorDrop(location, new ItemStack(material));
+                        }
+                    }
                 }
+            } else if (lower.equals("emerald") || lower.startsWith("emerald-")) {
                 material = Material.EMERALD;
+                int emeraldTier = lower.contains("-") ? Integer.parseInt(lower.substring(lower.indexOf('-') + 1)) : 1;
+                interval = switch (emeraldTier) {
+                    case 2 -> plugin.getConfig().getInt("bedwars.generator-intervals.emerald-tier2", 50);
+                    case 3 -> plugin.getConfig().getInt("bedwars.generator-intervals.emerald-tier3", 35);
+                    default -> plugin.getConfig().getInt("bedwars.generator-intervals.emerald", 65);
+                };
+                if (bedWarsGeneratorTicks % interval == 0) {
+                    for (Location location : locations) {
+                        if (location != null && location.getWorld() != null) {
+                            spawnGeneratorDrop(location, new ItemStack(material));
+                        }
+                    }
+                }
             } else if (lower.equals("gold")) {
                 material = Material.GOLD_INGOT;
+                if (bedWarsGeneratorTicks % 7 == 0) {
+                    for (Location location : locations) {
+                        if (location != null && location.getWorld() != null) {
+                            spawnGeneratorDrop(location, new ItemStack(material));
+                        }
+                    }
+                }
             } else {
                 material = Material.IRON_INGOT;
-            }
-            for (Location location : locations) {
-                if (location != null && location.getWorld() != null) {
-                    location.getWorld().dropItemNaturally(location.clone().add(0.5D, 0.5D, 0.5D), new ItemStack(material));
+                if (bedWarsGeneratorTicks % 1 == 0) {
+                    for (Location location : locations) {
+                        if (location != null && location.getWorld() != null) {
+                            spawnGeneratorDrop(location, new ItemStack(material));
+                        }
+                    }
                 }
             }
         });
+    }
+
+    private void spawnGeneratorDrop(Location location, ItemStack stack) {
+        Location center = centerOfBlock(location);
+        Item item = location.getWorld().dropItem(center, stack);
+        item.setVelocity(new Vector(0, 0, 0));
+        item.setPickupDelay(20);
+    }
+
+    private Location centerOfBlock(Location location) {
+        return location.clone().add(0.5D, 0.6D, 0.5D);
     }
 
     private void tickBedWarsUpgrades(EventSession session) {
@@ -1889,10 +2701,16 @@ public final class EventGameplayListener implements Listener {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.HASTE, 40, haste - 1, true, false, true));
             }
             EventMap map = session.selectedMap();
-            Location spawn = map == null || team == null ? null : map.spawns().get("team-" + team + "-spawn");
-            if (spawn != null && bedWarsHealPoolTeams.contains(team)
-                    && sameWorld(player.getLocation(), spawn) && player.getLocation().distanceSquared(spawn) <= 144.0D) {
+            Location healPoolLoc = map == null || team == null ? null : map.points().get("team-heal-pool-" + team);
+            if (healPoolLoc != null && bedWarsHealPoolTeams.contains(team)
+                    && sameWorld(player.getLocation(), healPoolLoc) && player.getLocation().distanceSquared(healPoolLoc) <= 25.0D) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, 40, 0, true, false, true));
+            } else {
+                Location spawn = map == null || team == null ? null : map.spawns().get("team-" + team + "-spawn");
+                if (spawn != null && bedWarsHealPoolTeams.contains(team)
+                        && sameWorld(player.getLocation(), spawn) && player.getLocation().distanceSquared(spawn) <= 144.0D) {
+                    player.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, 40, 0, true, false, true));
+                }
             }
         }
         triggerBedWarsTraps(session);
@@ -1940,9 +2758,13 @@ public final class EventGameplayListener implements Listener {
         }
         int protection = bedWarsProtectionLevels.getOrDefault(team, 0);
         String materialName = item.getType().name();
-        if (protection > 0 && (materialName.endsWith("_HELMET") || materialName.endsWith("_CHESTPLATE")
+        if (protection > 0 && (materialName.endsWith("_CHESTPLATE")
                 || materialName.endsWith("_LEGGINGS") || materialName.endsWith("_BOOTS"))) {
             item.addUnsafeEnchantment(Enchantment.PROTECTION, protection);
+        }
+        int featherFalling = bedWarsFeatherFallingLevels.getOrDefault(team, 0);
+        if (featherFalling > 0 && materialName.endsWith("_BOOTS")) {
+            item.addUnsafeEnchantment(Enchantment.FEATHER_FALLING, featherFalling);
         }
     }
 
@@ -1964,6 +2786,7 @@ public final class EventGameplayListener implements Listener {
                     .filter(uuid -> !team.equals(session.teams().get(uuid)))
                     .map(Bukkit::getPlayer)
                     .filter(java.util.Objects::nonNull)
+                    .filter(player -> player.getGameMode() != GameMode.SPECTATOR)
                     .filter(player -> sameWorld(player.getLocation(), teamSpawn)
                             && player.getLocation().distanceSquared(teamSpawn) <= 100.0D)
                     .findFirst()
@@ -1999,6 +2822,31 @@ public final class EventGameplayListener implements Listener {
                 intruder.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 160, 0));
                 intruder.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 160, 0));
             }
+        }
+    }
+
+    private void tickBedWarsShopLookAt(EventSession session) {
+        if (bedWarsShopEntities.isEmpty()) return;
+        List<Player> alive = session.participants().stream()
+                .map(Bukkit::getPlayer)
+                .filter(java.util.Objects::nonNull)
+                .filter(p -> p.getGameMode() != GameMode.SPECTATOR)
+                .toList();
+        if (alive.isEmpty()) return;
+        for (UUID entityUuid : bedWarsShopEntities) {
+            Entity entity = Bukkit.getEntity(entityUuid);
+            if (!(entity instanceof org.bukkit.entity.Mob mob) || !entity.isValid()) continue;
+            Player nearest = alive.stream()
+                    .filter(p -> p.getWorld().equals(entity.getWorld()))
+                    .min(java.util.Comparator.comparingDouble(p -> p.getLocation().distanceSquared(entity.getLocation())))
+                    .orElse(null);
+            if (nearest == null) continue;
+            Location look = nearest.getLocation().clone();
+            look.setY(look.getY() + 1.6); // look at player head level
+            org.bukkit.util.Vector dir = look.toVector().subtract(entity.getLocation().toVector());
+            Location face = entity.getLocation().clone();
+            face.setDirection(dir);
+            mob.setRotation(face.getYaw(), face.getPitch());
         }
     }
 
@@ -2211,10 +3059,119 @@ public final class EventGameplayListener implements Listener {
         Fireball fireball = player.getWorld().spawn(spawn, Fireball.class);
         fireball.setShooter(player);
         fireball.setDirection(direction);
-        fireball.setVelocity(direction.multiply(1.4D));
-        fireball.setYield(2.0F);
+        fireball.setVelocity(direction.multiply(1.6D));
+        fireball.setYield(1.5F); // Lower explosion damage for knockback-focused fireballs
         fireball.setIsIncendiary(false);
         player.playSound(player.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0F, 0.9F);
+
+        // Schedule explosion sound on impact
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!fireball.isDead()) {
+                fireball.getWorld().playSound(fireball.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 1.5F, 1.0F);
+            }
+        }, 40L);
+    }
+
+    private void spawnDreamDefender(Player player, ItemStack item, EquipmentSlot hand) {
+        if (item.getAmount() <= 1) {
+            if (hand == EquipmentSlot.OFF_HAND) {
+                player.getInventory().setItemInOffHand(null);
+            } else {
+                player.getInventory().setItemInMainHand(null);
+            }
+        } else {
+            item.setAmount(item.getAmount() - 1);
+        }
+        Location spawnLoc = player.getLocation().add(player.getLocation().getDirection().multiply(2)).add(0, 1, 0);
+        IronGolem golem = player.getWorld().spawn(spawnLoc, IronGolem.class);
+        golem.setPlayerCreated(false);
+        golem.setPersistent(false);
+        bedWarsGolems.add(golem.getUniqueId());
+        // Track owner via metadata
+        EventSession session = eventManager.session();
+        String team = session == null ? null : session.teams().get(player.getUniqueId());
+        // Use scoreboard tag for team
+        if (team != null) {
+            golem.addScoreboardTag("bw_owner_" + team);
+        }
+        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Dream Defender spawned.");
+        player.playSound(player.getLocation(), Sound.ENTITY_IRON_GOLEM_ATTACK, 0.7F, 1.0F);
+    }
+
+    private void trackThrownProjectile(Player player, String type) {
+        // Find the most recently launched projectile matching the type
+        for (Entity entity : player.getWorld().getEntitiesByClass(Projectile.class)) {
+            if (!(entity instanceof Projectile projectile)) continue;
+            if (projectile.getShooter() instanceof Player shooter && shooter.getUniqueId().equals(player.getUniqueId())
+                    && !bedWarsProjectiles.containsKey(entity.getUniqueId())) {
+                if (("BED_BUG".equals(type) && entity instanceof Snowball)
+                        || ("BRIDGE_EGG".equals(type))) {
+                    bedWarsProjectiles.put(entity.getUniqueId(), player.getUniqueId());
+                    bedWarsProjectileType.put(entity.getUniqueId(), type);
+                    if ("BRIDGE_EGG".equals(type)) {
+                        startBridgeEggTrail(entity);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    private void startBridgeEggTrail(Entity egg) {
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!egg.isValid() || egg.isDead()) {
+                BukkitTask t = bridgeEggTasks.remove(egg.getUniqueId());
+                if (t != null) t.cancel();
+                return;
+            }
+            Location loc = egg.getLocation().clone().subtract(0, 1, 0);
+            Material wool = teamWool(eventManager.teamFor(bedWarsProjectiles.get(egg.getUniqueId())));
+            Block block = loc.getBlock();
+            if (block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA) {
+                block.setType(wool, false);
+                bedWarsPlacedBlocks.add(locationKey(block.getLocation()));
+            }
+        }, 0L, 2L); // Place every 2 ticks
+        bridgeEggTasks.put(egg.getUniqueId(), task);
+    }
+
+    private void spawnBedBugSilverfish(Player owner, Location location) {
+        Silverfish silverfish = location.getWorld().spawn(location, Silverfish.class);
+        silverfish.setPersistent(false);
+        // Tag with owner's team
+        EventSession session = eventManager.session();
+        String team = session == null || owner == null ? null : session.teams().get(owner.getUniqueId());
+        if (team != null) {
+            silverfish.addScoreboardTag("bw_owner_" + team);
+        }
+        bedWarsSilverfish.add(silverfish.getUniqueId());
+        // Auto-despawn after 20 seconds
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (silverfish.isValid() && !silverfish.isDead()) {
+                silverfish.remove();
+            }
+            bedWarsSilverfish.remove(silverfish.getUniqueId());
+        }, 20L * 20);
+        if (owner != null) {
+            owner.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Bed Bug deployed.");
+        }
+    }
+
+    private void placeBridgeEggBlocks(EventSession session, Player owner, Location location) {
+        if (owner == null) return;
+        Material wool = teamWool(session == null ? "" : session.teams().getOrDefault(owner.getUniqueId(), ""));
+        Location loc = location.clone();
+        // Place 5 blocks behind the impact in the direction the egg was traveling
+        for (int i = 0; i < 5; i++) {
+            Block block = loc.getBlock();
+            if (block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA) {
+                block.setType(wool, false);
+                bedWarsPlacedBlocks.add(locationKey(block.getLocation()));
+            }
+            loc.add(0, -1, 0); // Move down one block
+            if (loc.getBlockY() < loc.getWorld().getMinHeight()) break;
+        }
+        owner.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Bridge Egg deployed.");
     }
 
     private boolean inArea(EventMap map, String key, Location location) {
@@ -2334,8 +3291,88 @@ public final class EventGameplayListener implements Listener {
         player.setFoodLevel(20);
         player.setVelocity(new Vector(0, 0, 0));
         clearBedWarsInventory(player);
+
+        // Team-colored leather armor
+        String team = session.teams().get(player.getUniqueId());
+        Color teamColor = teamLeatherColor(team);
+        ItemStack helmet = leatherArmor(Material.LEATHER_HELMET, teamColor);
+        helmet.addUnsafeEnchantment(Enchantment.AQUA_AFFINITY, 1);
+        player.getInventory().setHelmet(helmet);
+        player.getInventory().setChestplate(leatherArmor(Material.LEATHER_CHESTPLATE, teamColor));
+        player.getInventory().setLeggings(leatherArmor(Material.LEATHER_LEGGINGS, teamColor));
+        player.getInventory().setBoots(leatherArmor(Material.LEATHER_BOOTS, teamColor));
+
+        // Wooden sword
+        ItemStack sword = new ItemStack(Material.WOODEN_SWORD);
+        applyBedWarsItemUpgrades(player, sword);
+        player.getInventory().addItem(sword);
+
+        // Apply purchased permanent armor
         applyBedWarsArmor(player);
+
+        // Give permanent shears if owned
+        if (Boolean.TRUE.equals(bedWarsHasShears.get(player.getUniqueId()))) {
+            ItemStack shears = new ItemStack(Material.SHEARS);
+            applyBedWarsItemUpgrades(player, shears);
+            player.getInventory().addItem(shears);
+        }
+
+        // Give pickaxe based on current tier
+        int pickaxeTier = bedWarsPickaxeTiers.getOrDefault(player.getUniqueId(), 0);
+        if (pickaxeTier >= 1) {
+            String id = switch (pickaxeTier) {
+                case 1 -> "WOODEN_PICKAXE";
+                case 2 -> "IRON_PICKAXE";
+                case 3 -> "GOLD_PICKAXE";
+                case 4 -> "DIAMOND_PICKAXE";
+                default -> null;
+            };
+            if (id != null) {
+                ItemStack pickaxe = createBedWarsReward(player, Material.WOODEN_PICKAXE, 1, id);
+                player.getInventory().addItem(pickaxe);
+            }
+        }
+
+        // Give axe based on current tier
+        int axeTier = bedWarsAxeTiers.getOrDefault(player.getUniqueId(), 0);
+        if (axeTier >= 1) {
+            String id = switch (axeTier) {
+                case 1 -> "WOODEN_AXE";
+                case 2 -> "STONE_AXE";
+                case 3 -> "IRON_AXE";
+                case 4 -> "DIAMOND_AXE";
+                default -> null;
+            };
+            if (id != null) {
+                ItemStack axe = createBedWarsReward(player, Material.WOODEN_AXE, 1, id);
+                player.getInventory().addItem(axe);
+            }
+        }
+
+        player.updateInventory();
         TeleportService.teleport(plugin, player, spawn, "bedwars bed respawn");
+    }
+
+    private Color teamLeatherColor(String team) {
+        return switch (team == null ? "" : team.toLowerCase(Locale.ROOT)) {
+            case "1", "red" -> Color.fromRGB(255, 0, 0);
+            case "2", "blue" -> Color.fromRGB(0, 80, 255);
+            case "3", "green" -> Color.fromRGB(0, 255, 0);
+            case "4", "yellow" -> Color.fromRGB(255, 255, 0);
+            case "5", "orange" -> Color.fromRGB(255, 165, 0);
+            case "6", "purple" -> Color.fromRGB(128, 0, 128);
+            case "7", "cyan" -> Color.fromRGB(0, 255, 255);
+            default -> Color.fromRGB(255, 255, 255);
+        };
+    }
+
+    private ItemStack leatherArmor(Material material, Color color) {
+        ItemStack item = new ItemStack(material);
+        if (item.getItemMeta() instanceof org.bukkit.inventory.meta.LeatherArmorMeta meta) {
+            meta.setColor(color);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     private void clearBedWarsInventory(Player player) {
@@ -2389,6 +3426,23 @@ public final class EventGameplayListener implements Listener {
         bedWarsShopEntities.clear();
     }
 
+    private void clearBedWarsEntities() {
+        for (UUID uuid : bedWarsGolems) {
+            Entity entity = Bukkit.getEntity(uuid);
+            if (entity != null) {
+                entity.remove();
+            }
+        }
+        bedWarsGolems.clear();
+        for (UUID uuid : bedWarsSilverfish) {
+            Entity entity = Bukkit.getEntity(uuid);
+            if (entity != null) {
+                entity.remove();
+            }
+        }
+        bedWarsSilverfish.clear();
+    }
+
     private void rewardKnockbackKill(Player killer) {
         EventSession session = eventManager.session();
         if (killer == null || session == null || session.definition().type() != EventType.KNOCKBACK_FFA
@@ -2424,6 +3478,7 @@ public final class EventGameplayListener implements Listener {
     }
 
     private int countMaterial(Player player, Material material) {
+        if (player == null) return 0;
         int total = 0;
         for (ItemStack item : player.getInventory().getStorageContents()) {
             if (item != null && item.getType() == material) {
@@ -2438,6 +3493,11 @@ public final class EventGameplayListener implements Listener {
             return true;
         }
         if (isBedBlock(block.getType())) {
+            return true;
+        }
+        // Protect glass (blast-proof), obsidian, and stained glass
+        Material type = block.getType();
+        if (type == Material.OBSIDIAN || type == Material.GLASS || type.name().endsWith("STAINED_GLASS")) {
             return true;
         }
         return !bedWarsPlacedBlocks.contains(locationKey(block.getLocation()));
@@ -2842,57 +3902,505 @@ public final class EventGameplayListener implements Listener {
 
     private Inventory createBedWarsItemShop(Player player) {
         Inventory inventory = Bukkit.createInventory(null, 54, BEDWARS_ITEM_SHOP_TITLE);
-        inventory.setItem(0, infoItem(Material.NETHER_STAR, ChatColor.GREEN + "Quick Buy", "Solo BedWars item shop"));
-        inventory.setItem(1, infoItem(Material.WHITE_WOOL, ChatColor.YELLOW + "Blocks", "Building and bed defense"));
-        inventory.setItem(2, infoItem(Material.IRON_SWORD, ChatColor.YELLOW + "Melee", "Weapons"));
-        inventory.setItem(3, infoItem(Material.CHAINMAIL_BOOTS, ChatColor.YELLOW + "Armor", "Permanent armor"));
-        inventory.setItem(4, infoItem(Material.IRON_PICKAXE, ChatColor.YELLOW + "Tools", "Tools"));
-        inventory.setItem(5, infoItem(Material.BOW, ChatColor.YELLOW + "Ranged", "Bows and arrows"));
-        inventory.setItem(6, infoItem(Material.BREWING_STAND, ChatColor.YELLOW + "Potions", "Temporary effects"));
-        inventory.setItem(7, infoItem(Material.TNT, ChatColor.YELLOW + "Utility", "Explosives and movement"));
+        String page = bedWarsShopPage.getOrDefault(player.getUniqueId(), "QUICK_BUY");
+
+        inventory.setItem(0, pageButton(Material.NETHER_STAR, ChatColor.GREEN + "Quick Buy", "QUICK_BUY", page));
+        inventory.setItem(1, pageButton(Material.WHITE_WOOL, ChatColor.YELLOW + "Blocks", "BLOCKS", page));
+        inventory.setItem(2, pageButton(Material.IRON_SWORD, ChatColor.YELLOW + "Melee", "MELEE", page));
+        inventory.setItem(3, pageButton(Material.CHAINMAIL_BOOTS, ChatColor.YELLOW + "Armor", "ARMOR", page));
+        inventory.setItem(4, pageButton(Material.IRON_PICKAXE, ChatColor.YELLOW + "Tools", "TOOLS", page));
+        inventory.setItem(5, pageButton(Material.BOW, ChatColor.YELLOW + "Ranged", "RANGED", page));
+        inventory.setItem(6, pageButton(Material.BREWING_STAND, ChatColor.YELLOW + "Potions", "POTIONS", page));
+        inventory.setItem(7, pageButton(Material.TNT, ChatColor.YELLOW + "Utility", "UTILITY", page));
         for (int slot = 9; slot <= 17; slot++) {
             inventory.setItem(slot, infoItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
         }
-        List<ItemStack> quickBuy = List.of(
-                shopItem(teamWool(eventManager.teamFor(player.getUniqueId())), 16, ChatColor.WHITE + "Wool", 4, Material.IRON_INGOT, "Blocks"),
-                shopItem(Material.TERRACOTTA, 16, ChatColor.GOLD + "Hardened Clay", 12, Material.IRON_INGOT, "Blocks"),
-                shopItem(Material.END_STONE, 12, ChatColor.YELLOW + "End Stone", 24, Material.IRON_INGOT, "Blocks"),
-                shopItem(Material.LADDER, 16, ChatColor.WHITE + "Ladder", 4, Material.IRON_INGOT, "Blocks"),
-                shopItem(Material.OAK_PLANKS, 16, ChatColor.GOLD + "Wood Planks", 4, Material.GOLD_INGOT, "Blocks"),
-                shopItem(Material.OBSIDIAN, 4, ChatColor.DARK_PURPLE + "Obsidian", 4, Material.EMERALD, "Blocks"),
-                shopItem(Material.STONE_SWORD, 1, ChatColor.GRAY + "Stone Sword", 10, Material.IRON_INGOT, "Melee"),
-                shopItem(Material.IRON_SWORD, 1, ChatColor.WHITE + "Iron Sword", 7, Material.GOLD_INGOT, "Melee"),
-                shopItem(Material.DIAMOND_SWORD, 1, ChatColor.AQUA + "Diamond Sword", 4, Material.EMERALD, "Melee"),
-                shopActionItem(Material.STICK, 1, ChatColor.GOLD + "Knockback Stick", 5, Material.GOLD_INGOT, "Melee", "KNOCKBACK_STICK"),
-                shopActionItem(Material.CHAINMAIL_BOOTS, 1, ChatColor.GRAY + "Permanent Chainmail Armor", 40, Material.IRON_INGOT, "Armor", "ARMOR_CHAIN"),
-                shopActionItem(Material.IRON_BOOTS, 1, ChatColor.WHITE + "Permanent Iron Armor", 12, Material.GOLD_INGOT, "Armor", "ARMOR_IRON"),
-                shopActionItem(Material.DIAMOND_BOOTS, 1, ChatColor.AQUA + "Permanent Diamond Armor", 6, Material.EMERALD, "Armor", "ARMOR_DIAMOND"),
-                shopItem(Material.SHEARS, 1, ChatColor.AQUA + "Permanent Shears", 20, Material.IRON_INGOT, "Tools"),
-                shopItem(Material.WOODEN_PICKAXE, 1, ChatColor.GOLD + "Wooden Pickaxe", 10, Material.IRON_INGOT, "Tools"),
-                shopItem(Material.WOODEN_AXE, 1, ChatColor.GOLD + "Wooden Axe", 10, Material.IRON_INGOT, "Tools"),
-                shopItem(Material.BOW, 1, ChatColor.YELLOW + "Bow", 12, Material.GOLD_INGOT, "Ranged"),
-                shopActionItem(Material.BOW, 1, ChatColor.YELLOW + "Bow (Power I)", 20, Material.GOLD_INGOT, "Ranged", "POWER_BOW"),
-                shopActionItem(Material.BOW, 1, ChatColor.LIGHT_PURPLE + "Bow (Power I, Punch I)", 6, Material.EMERALD, "Ranged", "PUNCH_BOW"),
-                shopItem(Material.ARROW, 6, ChatColor.WHITE + "Arrows", 2, Material.GOLD_INGOT, "Ranged"),
-                shopActionItem(Material.POTION, 1, ChatColor.AQUA + "Speed II Potion", 1, Material.EMERALD, "Potions", "SPEED_POTION"),
-                shopActionItem(Material.POTION, 1, ChatColor.GREEN + "Jump V Potion", 1, Material.EMERALD, "Potions", "JUMP_POTION"),
-                shopActionItem(Material.POTION, 1, ChatColor.GRAY + "Invisibility Potion", 2, Material.EMERALD, "Potions", "INVIS_POTION"),
-                shopItem(Material.GOLDEN_APPLE, 1, ChatColor.GOLD + "Golden Apple", 3, Material.GOLD_INGOT, "Utility"),
-                shopItem(Material.FIRE_CHARGE, 1, ChatColor.RED + "Fireball", 40, Material.IRON_INGOT, "Utility"),
-                shopItem(Material.TNT, 1, ChatColor.RED + "TNT", 4, Material.GOLD_INGOT, "Utility"),
-                shopItem(Material.ENDER_PEARL, 1, ChatColor.DARK_PURPLE + "Ender Pearl", 4, Material.EMERALD, "Utility"),
-                shopItem(Material.WATER_BUCKET, 1, ChatColor.BLUE + "Water Bucket", 2, Material.GOLD_INGOT, "Utility")
-        );
-        int[] quickBuySlots = {
-                19, 20, 21, 22, 23, 24, 25,
-                28, 29, 30, 31, 32, 33, 34,
-                37, 38, 39, 40, 41, 42, 43,
-                46, 47, 48, 49, 50, 51, 52
-        };
-        for (int index = 0; index < quickBuy.size(); index++) {
-            inventory.setItem(quickBuySlots[index], quickBuy.get(index));
+
+        List<ItemStack> items;
+        switch (page) {
+            case "QUICK_BUY" -> items = buildQuickBuyPage(player);
+            case "BLOCKS" -> items = buildBlocksPage(player);
+            case "MELEE" -> items = buildMeleePage(player);
+            case "ARMOR" -> items = buildArmorPage(player);
+            case "TOOLS" -> items = buildToolsPage(player);
+            case "RANGED" -> items = buildRangedPage(player);
+            case "POTIONS" -> items = buildPotionsPage(player);
+            case "UTILITY" -> items = buildUtilityPage(player);
+            default -> items = buildQuickBuyPage(player);
+        }
+
+        int[] displaySlots = {19, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33, 34, 37, 38, 39, 40, 41, 42, 43};
+        for (int i = 0; i < items.size() && i < displaySlots.length; i++) {
+            inventory.setItem(displaySlots[i], items.get(i));
         }
         return inventory;
+    }
+
+    private ItemStack pageButton(Material material, String name, String targetPage, String currentPage) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            boolean active = targetPage.equalsIgnoreCase(currentPage);
+            meta.setLore(List.of(active ? ChatColor.GREEN + "(Selected)" : ChatColor.GRAY + "Click to view"));
+            if (active) {
+                meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+                meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+            }
+            meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, "PAGE:" + targetPage);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private List<ItemStack> buildQuickBuyPage(Player player) {
+        List<String> slots = quickBuySlots.computeIfAbsent(player.getUniqueId(), uuid -> defaultQuickBuyLayout());
+        List<ItemStack> items = new ArrayList<>();
+        for (int i = 0; i < 21; i++) {
+            String itemId = i < slots.size() ? slots.get(i) : "EMPTY";
+            if ("EMPTY".equals(itemId)) {
+                ItemStack empty = new ItemStack(Material.RED_STAINED_GLASS_PANE);
+                ItemMeta meta = empty.getItemMeta();
+                if (meta != null) {
+                    meta.setDisplayName(ChatColor.GRAY + "Empty Slot!");
+                    meta.setLore(List.of(
+                            ChatColor.GRAY + "This is a Quick Buy Slot!",
+                            ChatColor.YELLOW + "Sneak Click any item in the shop",
+                            ChatColor.YELLOW + "to add it here."
+                    ));
+                    meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, "EMPTY");
+                    meta.getPersistentDataContainer().set(new NamespacedKey(plugin, "qb-slot"), PersistentDataType.INTEGER, i);
+                    empty.setItemMeta(meta);
+                }
+                items.add(empty);
+            } else {
+                ItemStack item;
+                if (isToolItem(itemId)) {
+                    // Quick Buy tool slot: show next tier dynamically like Tools tab
+                    boolean isPickaxe = isPickaxeId(itemId);
+                    item = buildToolUpgradeSlot(player, isPickaxe, true);
+                } else {
+                    item = createShopItemById(player, itemId, true);
+                }
+                ItemMeta meta = item.getItemMeta();
+                if (meta != null) {
+                    meta.getPersistentDataContainer().set(new NamespacedKey(plugin, "qb-slot"), PersistentDataType.INTEGER, i);
+                    item.setItemMeta(meta);
+                }
+                items.add(item);
+            }
+        }
+        return items;
+    }
+
+    private List<String> defaultQuickBuyLayout() {
+        return new ArrayList<>(List.of(
+                "WOOL", "STONE_SWORD", "CHAINMAIL_ARMOR", "WOODEN_PICKAXE", "BOW",
+                "SPEED_POTION", "TNT", "OAK_PLANKS", "IRON_SWORD", "IRON_ARMOR",
+                "SHEARS", "ARROWS", "INVISIBILITY_POTION", "WATER_BUCKET",
+                "EMPTY", "EMPTY", "EMPTY", "EMPTY", "EMPTY", "EMPTY", "EMPTY"
+        ));
+    }
+
+    private List<ItemStack> buildBlocksPage(Player player) {
+        return List.of(
+                createShopItemById(player, "WOOL", false),
+                createShopItemById(player, "HARDENED_CLAY", false),
+                createShopItemById(player, "BLAST_PROOF_GLASS", false),
+                createShopItemById(player, "END_STONE", false),
+                createShopItemById(player, "LADDER", false),
+                createShopItemById(player, "OAK_PLANKS", false),
+                createShopItemById(player, "OBSIDIAN", false)
+        );
+    }
+
+    private List<ItemStack> buildMeleePage(Player player) {
+        return List.of(
+                createShopItemById(player, "STONE_SWORD", false),
+                createShopItemById(player, "IRON_SWORD", false),
+                createShopItemById(player, "DIAMOND_SWORD", false),
+                createShopItemById(player, "KNOCKBACK_STICK", false)
+        );
+    }
+
+    private List<ItemStack> buildArmorPage(Player player) {
+        return List.of(
+                createShopItemById(player, "CHAINMAIL_ARMOR", false),
+                createShopItemById(player, "IRON_ARMOR", false),
+                createShopItemById(player, "DIAMOND_ARMOR", false)
+        );
+    }
+
+    private List<ItemStack> buildToolsPage(Player player) {
+        return List.of(
+                createShopItemById(player, "SHEARS", false),
+                buildToolUpgradeSlot(player, true, false),
+                buildToolUpgradeSlot(player, false, false)
+        );
+    }
+
+    private ItemStack buildToolUpgradeSlot(Player player, boolean isPickaxe, boolean isQuickBuy) {
+        int tier = isPickaxe ? bedWarsPickaxeTiers.getOrDefault(player.getUniqueId(), 0)
+                : bedWarsAxeTiers.getOrDefault(player.getUniqueId(), 0);
+        int nextTier = tier + 1;
+        if (nextTier > 4) {
+            String type = isPickaxe ? "Pickaxe" : "Axe";
+            return infoItem(Material.GRAY_STAINED_GLASS_PANE,
+                    ChatColor.GREEN + type + " (Maxed)",
+                    "You have the maximum tier.");
+        }
+        String id = isPickaxe
+                ? switch (nextTier) { case 1 -> "WOODEN_PICKAXE"; case 2 -> "IRON_PICKAXE"; case 3 -> "GOLD_PICKAXE"; case 4 -> "DIAMOND_PICKAXE"; default -> "WOODEN_PICKAXE"; }
+                : switch (nextTier) { case 1 -> "WOODEN_AXE"; case 2 -> "STONE_AXE"; case 3 -> "IRON_AXE"; case 4 -> "DIAMOND_AXE"; default -> "WOODEN_AXE"; };
+        int cost = isPickaxe
+                ? switch (nextTier) { case 1, 2 -> 10; case 3 -> 3; case 4 -> 6; default -> 10; }
+                : switch (nextTier) { case 1, 2 -> 10; case 3 -> 3; case 4 -> 6; default -> 10; };
+        Material currency = nextTier <= 2 ? Material.IRON_INGOT : Material.GOLD_INGOT;
+        Material material = switch (nextTier) {
+            case 1 -> isPickaxe ? Material.WOODEN_PICKAXE : Material.WOODEN_AXE;
+            case 2 -> isPickaxe ? Material.IRON_PICKAXE : Material.STONE_AXE;
+            case 3 -> isPickaxe ? Material.GOLDEN_PICKAXE : Material.IRON_AXE;
+            case 4 -> isPickaxe ? Material.DIAMOND_PICKAXE : Material.DIAMOND_AXE;
+            default -> isPickaxe ? Material.WOODEN_PICKAXE : Material.WOODEN_AXE;
+        };
+        String name = "Tier " + nextTier + " " + (isPickaxe ? "Pickaxe" : "Axe");
+        String nextName = tier == 0 ? "Wooden" : isPickaxe
+                ? switch (nextTier) { case 2 -> "Iron"; case 3 -> "Golden"; case 4 -> "Diamond"; default -> "Wooden"; }
+                : switch (nextTier) { case 2 -> "Stone"; case 3 -> "Iron"; case 4 -> "Diamond"; default -> "Wooden"; };
+        List<String> lore = new ArrayList<>();
+        ChatColor costColor = switch (currency) {
+            case IRON_INGOT -> ChatColor.WHITE;
+            case GOLD_INGOT -> ChatColor.GOLD;
+            case EMERALD -> ChatColor.DARK_GREEN;
+            case DIAMOND -> ChatColor.AQUA;
+            default -> ChatColor.GRAY;
+        };
+        lore.add(ChatColor.GRAY + "Cost: " + costColor + cost + " " + readableMaterial(currency));
+        lore.add("");
+        lore.add(ChatColor.GRAY + "Upgrade to " + nextName + " " + (isPickaxe ? "Pickaxe" : "Axe"));
+        lore.add("");
+        lore.add(ChatColor.GRAY + "This is an upgradable item.");
+        lore.add(ChatColor.GRAY + "It will lose 1 tier upon death!");
+        lore.add("");
+        lore.add(ChatColor.GRAY + "You will permanently respawn");
+        lore.add(ChatColor.GRAY + "with at least the lowest tier.");
+        lore.add("");
+        boolean canAfford = countMaterial(player, currency) >= cost;
+        if (canAfford) {
+            lore.add(ChatColor.YELLOW + "Click to purchase!");
+        } else {
+            lore.add(ChatColor.RED + "You don't have enough " + readableMaterial(currency) + "s!");
+        }
+        if (isQuickBuy) {
+            lore.add(ChatColor.AQUA + "Sneak Click to remove from Quick Buy!");
+        } else {
+            lore.add(ChatColor.AQUA + "Sneak Click to add to Quick Buy!");
+        }
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(canAfford ? (ChatColor.GREEN + name) : (ChatColor.RED + name));
+            meta.setLore(lore);
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+            meta.getPersistentDataContainer().set(shopRewardKey, PersistentDataType.STRING, id);
+            meta.getPersistentDataContainer().set(shopCostKey, PersistentDataType.INTEGER, cost);
+            meta.getPersistentDataContainer().set(shopCurrencyKey, PersistentDataType.STRING, currency.name());
+            meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, id);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private List<ItemStack> buildRangedPage(Player player) {
+        return List.of(
+                createShopItemById(player, "BOW", false),
+                createShopItemById(player, "POWER_BOW", false),
+                createShopItemById(player, "PUNCH_BOW", false),
+                createShopItemById(player, "ARROWS", false)
+        );
+    }
+
+    private List<ItemStack> buildPotionsPage(Player player) {
+        return List.of(
+                createShopItemById(player, "SPEED_POTION", false),
+                createShopItemById(player, "JUMP_POTION", false),
+                createShopItemById(player, "INVISIBILITY_POTION", false)
+        );
+    }
+
+    private List<ItemStack> buildUtilityPage(Player player) {
+        return List.of(
+                createShopItemById(player, "GOLDEN_APPLE", false),
+                createShopItemById(player, "BED_BUG", false),
+                createShopItemById(player, "DREAM_DEFENDER", false),
+                createShopItemById(player, "FIREBALL", false),
+                createShopItemById(player, "TNT", false),
+                createShopItemById(player, "ENDER_PEARL", false),
+                createShopItemById(player, "WATER_BUCKET", false),
+                createShopItemById(player, "BRIDGE_EGG", false),
+                createShopItemById(player, "MAGIC_MILK", false),
+                createShopItemById(player, "SPONGE", false),
+                createShopItemById(player, "POPUP_TOWER", false)
+        );
+    }
+
+    private ItemStack createShopItemById(Player player, String itemId, boolean isQuickBuy) {
+        return switch (itemId) {
+            case "WOOL" -> shopItem(player, teamWool(player == null ? "" : eventManager.teamFor(player.getUniqueId())),
+                    16, ChatColor.WHITE + "Wool", 4, Material.IRON_INGOT,
+                    List.of("Great for bridging across islands.", "Turns into your team's color."), itemId, isQuickBuy);
+            case "HARDENED_CLAY" -> shopItem(player, Material.TERRACOTTA,
+                    16, ChatColor.GOLD + "Hardened Clay", 12, Material.IRON_INGOT,
+                    List.of("Basic block to defend your bed."), itemId, isQuickBuy);
+            case "BLAST_PROOF_GLASS" -> shopItem(player, Material.GLASS,
+                    4, ChatColor.AQUA + "Blast-Proof Glass", 12, Material.IRON_INGOT,
+                    List.of("Immune to explosions."), itemId, isQuickBuy);
+            case "END_STONE" -> shopItem(player, Material.END_STONE,
+                    12, ChatColor.YELLOW + "End Stone", 24, Material.IRON_INGOT,
+                    List.of("Solid block to defend your bed."), itemId, isQuickBuy);
+            case "LADDER" -> shopItem(player, Material.LADDER,
+                    8, ChatColor.WHITE + "Ladder", 4, Material.IRON_INGOT,
+                    List.of("Useful to save cats stuck in trees."), itemId, isQuickBuy);
+            case "OAK_PLANKS" -> shopItem(player, Material.OAK_PLANKS,
+                    16, ChatColor.GOLD + "Wood", 4, Material.GOLD_INGOT,
+                    List.of("Good block to defend your bed."), itemId, isQuickBuy);
+            case "OBSIDIAN" -> shopItem(player, Material.OBSIDIAN,
+                    4, ChatColor.DARK_PURPLE + "Obsidian", 4, Material.EMERALD,
+                    List.of("Extreme protection for your bed."), itemId, isQuickBuy);
+            case "STONE_SWORD" -> shopItem(player, Material.STONE_SWORD,
+                    1, ChatColor.GRAY + "Stone Sword", 10, Material.IRON_INGOT,
+                    List.of(), itemId, isQuickBuy);
+            case "IRON_SWORD" -> shopItem(player, Material.IRON_SWORD,
+                    1, ChatColor.WHITE + "Iron Sword", 7, Material.GOLD_INGOT,
+                    List.of(), itemId, isQuickBuy);
+            case "DIAMOND_SWORD" -> shopItem(player, Material.DIAMOND_SWORD,
+                    1, ChatColor.AQUA + "Diamond Sword", 4, Material.EMERALD,
+                    List.of(), itemId, isQuickBuy);
+            case "KNOCKBACK_STICK" -> shopActionItem(player, Material.STICK,
+                    1, ChatColor.GOLD + "Knockback Stick", 5, Material.GOLD_INGOT,
+                    List.of("Stick enchanted with Knockback I.", "Good for knocking players into the void."),
+                    itemId, isQuickBuy, true);
+            case "CHAINMAIL_ARMOR" -> shopItem(player, Material.CHAINMAIL_BOOTS,
+                    1, ChatColor.GRAY + "Permanent Chainmail Armor", 24, Material.IRON_INGOT,
+                    List.of("Chainmail leggings and boots", "which you will always spawn with."), itemId, isQuickBuy);
+            case "IRON_ARMOR" -> shopItem(player, Material.IRON_BOOTS,
+                    1, ChatColor.WHITE + "Permanent Iron Armor", 12, Material.GOLD_INGOT,
+                    List.of("Iron leggings and boots which", "you will always spawn with."), itemId, isQuickBuy);
+            case "DIAMOND_ARMOR" -> shopItem(player, Material.DIAMOND_BOOTS,
+                    1, ChatColor.AQUA + "Permanent Diamond Armor", 6, Material.EMERALD,
+                    List.of("Diamond leggings and boots which", "you will always spawn with."), itemId, isQuickBuy);
+            case "SHEARS" -> shopItem(player, Material.SHEARS,
+                    1, ChatColor.AQUA + "Permanent Shears", 20, Material.IRON_INGOT,
+                    List.of("Great to get rid of wool.", "You will always spawn with these shears."), itemId, isQuickBuy);
+            case "WOODEN_PICKAXE" -> toolShopItem(player, Material.WOODEN_PICKAXE,
+                    ChatColor.GOLD + "Wooden Pickaxe", 10, Material.IRON_INGOT,
+                    List.of("Efficiency I"), "WOODEN_PICKAXE", 1, isQuickBuy);
+            case "IRON_PICKAXE" -> toolShopItem(player, Material.IRON_PICKAXE,
+                    ChatColor.WHITE + "Iron Pickaxe", 10, Material.IRON_INGOT,
+                    List.of("Efficiency II"), "IRON_PICKAXE", 2, isQuickBuy);
+            case "GOLD_PICKAXE" -> toolShopItem(player, Material.GOLDEN_PICKAXE,
+                    ChatColor.GOLD + "Golden Pickaxe", 3, Material.GOLD_INGOT,
+                    List.of("Efficiency III, Sharpness II"), "GOLD_PICKAXE", 3, isQuickBuy);
+            case "DIAMOND_PICKAXE" -> toolShopItem(player, Material.DIAMOND_PICKAXE,
+                    ChatColor.AQUA + "Diamond Pickaxe", 6, Material.GOLD_INGOT,
+                    List.of("Efficiency III"), "DIAMOND_PICKAXE", 4, isQuickBuy);
+            case "WOODEN_AXE" -> toolShopItem(player, Material.WOODEN_AXE,
+                    ChatColor.GOLD + "Wooden Axe", 10, Material.IRON_INGOT,
+                    List.of("Efficiency I"), "WOODEN_AXE", 1, isQuickBuy);
+            case "STONE_AXE" -> toolShopItem(player, Material.STONE_AXE,
+                    ChatColor.GRAY + "Stone Axe", 10, Material.IRON_INGOT,
+                    List.of("Efficiency I"), "STONE_AXE", 2, isQuickBuy);
+            case "IRON_AXE" -> toolShopItem(player, Material.IRON_AXE,
+                    ChatColor.WHITE + "Iron Axe", 3, Material.GOLD_INGOT,
+                    List.of("Efficiency II"), "IRON_AXE", 3, isQuickBuy);
+            case "DIAMOND_AXE" -> toolShopItem(player, Material.DIAMOND_AXE,
+                    ChatColor.AQUA + "Diamond Axe", 6, Material.GOLD_INGOT,
+                    List.of("Efficiency III"), "DIAMOND_AXE", 4, isQuickBuy);
+            case "BOW" -> shopItem(player, Material.BOW,
+                    1, ChatColor.YELLOW + "Bow", 12, Material.GOLD_INGOT,
+                    List.of(), itemId, isQuickBuy);
+            case "POWER_BOW" -> shopActionItem(player, Material.BOW,
+                    1, ChatColor.YELLOW + "Bow (Power I)", 20, Material.GOLD_INGOT,
+                    List.of("Bow enchanted with Power I.", "Requires arrows."), itemId, isQuickBuy, true);
+            case "PUNCH_BOW" -> shopActionItem(player, Material.BOW,
+                    1, ChatColor.LIGHT_PURPLE + "Bow (Power I, Punch I)", 6, Material.EMERALD,
+                    List.of("Bow enchanted with Power I", "and Punch I. Requires arrows."), itemId, isQuickBuy, true);
+            case "ARROWS" -> shopItem(player, Material.ARROW,
+                    6, ChatColor.WHITE + "Arrows", 2, Material.GOLD_INGOT,
+                    List.of(), itemId, isQuickBuy);
+            case "SPEED_POTION" -> {
+                ItemStack item = shopActionItem(player, Material.POTION,
+                        1, ChatColor.AQUA + "Speed II Potion (45 sec)", 1, Material.EMERALD,
+                        List.of("Grants Speed II for 45 seconds."), itemId, isQuickBuy, false);
+                setPotionShopIcon(item, PotionType.SWIFTNESS);
+                yield item;
+            }
+            case "JUMP_POTION" -> {
+                ItemStack item = shopActionItem(player, Material.POTION,
+                        1, ChatColor.GREEN + "Jump V Potion (45 sec)", 1, Material.EMERALD,
+                        List.of("Grants Jump Boost V for 45 seconds."), itemId, isQuickBuy, false);
+                setPotionShopIcon(item, PotionType.LEAPING);
+                yield item;
+            }
+            case "INVISIBILITY_POTION" -> {
+                ItemStack item = shopActionItem(player, Material.POTION,
+                        1, ChatColor.GRAY + "Invisibility Potion (30 sec)", 2, Material.EMERALD,
+                        List.of("Grants Invisibility for 30 seconds."), itemId, isQuickBuy, false);
+                setPotionShopIcon(item, PotionType.INVISIBILITY);
+                yield item;
+            }
+            case "GOLDEN_APPLE" -> shopItem(player, Material.GOLDEN_APPLE,
+                    1, ChatColor.GOLD + "Golden Apple", 3, Material.GOLD_INGOT,
+                    List.of(), itemId, isQuickBuy);
+            case "BED_BUG" -> shopItem(player, Material.SNOWBALL,
+                    1, ChatColor.GRAY + "Bed Bug", 24, Material.IRON_INGOT,
+                    List.of("Spawns a Silverfish where the", "snowball lands to distract",
+                            "and attack enemies."), itemId, isQuickBuy);
+            case "DREAM_DEFENDER" -> shopItem(player, Material.IRON_GOLEM_SPAWN_EGG,
+                    1, ChatColor.WHITE + "Dream Defender", 120, Material.IRON_INGOT,
+                    List.of("Spawns an Iron Golem to help", "defend your base."), itemId, isQuickBuy);
+            case "FIREBALL" -> shopActionItem(player, Material.FIRE_CHARGE,
+                    1, ChatColor.RED + "Fireball", 40, Material.IRON_INGOT,
+                    List.of("Right-click to launch!", "Explodes on impact and knocks", "players back."),
+                    itemId, isQuickBuy, true);
+            case "TNT" -> shopItem(player, Material.TNT,
+                    1, ChatColor.RED + "TNT", 4, Material.GOLD_INGOT,
+                    List.of("Instantly ignites when placed.", "Useful for breaking bed defenses."), itemId, isQuickBuy);
+            case "ENDER_PEARL" -> shopItem(player, Material.ENDER_PEARL,
+                    1, ChatColor.DARK_PURPLE + "Ender Pearl", 4, Material.EMERALD,
+                    List.of(), itemId, isQuickBuy);
+            case "WATER_BUCKET" -> shopItem(player, Material.WATER_BUCKET,
+                    1, ChatColor.BLUE + "Water Bucket", 2, Material.GOLD_INGOT,
+                    List.of(), itemId, isQuickBuy);
+            case "BRIDGE_EGG" -> shopItem(player, Material.EGG,
+                    1, ChatColor.WHITE + "Bridge Egg", 1, Material.EMERALD,
+                    List.of("Creates a bridge in its trail."), itemId, isQuickBuy);
+            case "MAGIC_MILK" -> shopItem(player, Material.MILK_BUCKET,
+                    1, ChatColor.WHITE + "Magic Milk", 4, Material.GOLD_INGOT,
+                    List.of("Avoid triggering traps for", "30 seconds after drinking."), itemId, isQuickBuy);
+            case "SPONGE" -> shopItem(player, Material.SPONGE,
+                    4, ChatColor.YELLOW + "Sponge", 2, Material.GOLD_INGOT,
+                    List.of("Removes nearby water when placed."), itemId, isQuickBuy);
+            case "POPUP_TOWER" -> shopItem(player, Material.CHEST,
+                    1, ChatColor.GREEN + "Compact Pop-up Tower", 24, Material.IRON_INGOT,
+                    List.of("Place a compact pop-up tower."), itemId, isQuickBuy);
+            default -> new ItemStack(Material.BARRIER);
+        };
+    }
+
+    private ItemStack shopItem(Player player, Material material, int amount, String name, int cost, Material currency,
+                               List<String> description, String itemId, boolean isQuickBuy) {
+        return shopActionItem(player, material, amount, name, cost, currency, description, itemId, isQuickBuy, false);
+    }
+
+    private ItemStack shopActionItem(Player player, Material material, int amount, String name, int cost, Material currency,
+                                     List<String> description, String itemId, boolean isQuickBuy, boolean enchanted) {
+        ItemStack item = new ItemStack(material, amount);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            boolean canAfford = countMaterial(player, currency) >= cost;
+            boolean alreadyInQB = !isQuickBuy && itemId != null && !"EMPTY".equals(itemId)
+                    && quickBuySlots.computeIfAbsent(player.getUniqueId(), uuid -> defaultQuickBuyLayout()).contains(itemId);
+            // Name color: GREEN if affordable, RED if not
+            String stripped = ChatColor.stripColor(name);
+            meta.setDisplayName(canAfford ? (ChatColor.GREEN + stripped) : (ChatColor.RED + stripped));
+            List<String> lore = new ArrayList<>();
+            // Colorized cost line
+            ChatColor costColor = switch (currency) {
+                case IRON_INGOT -> ChatColor.WHITE;
+                case GOLD_INGOT -> ChatColor.GOLD;
+                case EMERALD -> ChatColor.DARK_GREEN;
+                case DIAMOND -> ChatColor.AQUA;
+                default -> ChatColor.GRAY;
+            };
+            lore.add(ChatColor.GRAY + "Cost: " + costColor + cost + " " + readableMaterial(currency));
+            lore.add("");
+            // Description lines in LIGHT_GRAY
+            for (String desc : description) {
+                lore.add(ChatColor.GRAY + desc);
+            }
+            lore.add("");
+            // Action text
+            if (canAfford) {
+                lore.add(ChatColor.YELLOW + "Click to purchase!");
+            } else {
+                lore.add(ChatColor.RED + "You don't have enough " + readableMaterial(currency) + "s!");
+            }
+            if (isQuickBuy) {
+                lore.add(ChatColor.AQUA + "Sneak Click to remove from Quick Buy!");
+            } else if (!alreadyInQB) {
+                lore.add(ChatColor.AQUA + "Sneak Click to add to Quick Buy!");
+            }
+            meta.setLore(lore);
+            if (enchanted) {
+                meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+                meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+            }
+            meta.getPersistentDataContainer().set(shopRewardKey, PersistentDataType.STRING, itemId);
+            meta.getPersistentDataContainer().set(shopCostKey, PersistentDataType.INTEGER, cost);
+            meta.getPersistentDataContainer().set(shopCurrencyKey, PersistentDataType.STRING, currency.name());
+            meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, itemId);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack toolShopItem(Player player, Material material, String name, int cost, Material currency,
+                                   List<String> enchants, String itemId, int tier, boolean isQuickBuy) {
+        int currentTier = isPickaxeId(itemId) ? bedWarsPickaxeTiers.getOrDefault(player.getUniqueId(), 0)
+                : bedWarsAxeTiers.getOrDefault(player.getUniqueId(), 0);
+        if (currentTier >= tier) {
+            ItemStack item = new ItemStack(material);
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.GREEN + ChatColor.stripColor(name) + " (Purchased)");
+                meta.setLore(List.of(ChatColor.GREEN + "You already own this tier or higher."));
+                meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+                meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+                item.setItemMeta(meta);
+            }
+            return item;
+        }
+        if (currentTier + 1 < tier) {
+            return infoItem(Material.GRAY_STAINED_GLASS_PANE, ChatColor.GRAY + "Locked", "Buy previous tier first.");
+        }
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + "Cost: " + cost + " " + readableMaterial(currency));
+        lore.add("");
+        lore.addAll(enchants);
+        lore.add("");
+        lore.add(ChatColor.GRAY + "This is an upgradable item.");
+        lore.add(ChatColor.GRAY + "It will lose 1 tier upon death!");
+        lore.add("");
+        lore.add(ChatColor.GRAY + "You will permanently respawn");
+        lore.add(ChatColor.GRAY + "with at least the lowest tier.");
+        lore.add("");
+        if (isQuickBuy) {
+            lore.add(ChatColor.YELLOW + "Click to purchase!");
+            lore.add(ChatColor.YELLOW + "Sneak Click to remove from Quick Buy!");
+        } else {
+            lore.add(ChatColor.YELLOW + "Click to purchase!");
+            lore.add(ChatColor.YELLOW + "Sneak Click to add to Quick Buy!");
+        }
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            meta.setLore(lore);
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+            meta.getPersistentDataContainer().set(shopRewardKey, PersistentDataType.STRING, itemId);
+            meta.getPersistentDataContainer().set(shopCostKey, PersistentDataType.INTEGER, cost);
+            meta.getPersistentDataContainer().set(shopCurrencyKey, PersistentDataType.STRING, currency.name());
+            meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, itemId);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private boolean isPickaxeId(String id) {
+        return id != null && id.contains("PICKAXE");
     }
 
     private Material teamWool(String team) {
@@ -2910,36 +4418,65 @@ public final class EventGameplayListener implements Listener {
 
     private Inventory createBedWarsUpgradeShop(Player player) {
         Inventory inventory = Bukkit.createInventory(null, 54, BEDWARS_UPGRADE_SHOP_TITLE);
+        // Upgrades on the left
         inventory.setItem(10, upgradeItem(player, Material.IRON_SWORD, ChatColor.AQUA + "Sharpened Swords", "SHARPNESS"));
-        inventory.setItem(12, upgradeItem(player, Material.IRON_CHESTPLATE, ChatColor.GREEN + "Reinforced Armor", "PROTECTION"));
-        inventory.setItem(14, upgradeItem(player, Material.GOLDEN_PICKAXE, ChatColor.YELLOW + "Maniac Miner", "HASTE"));
-        inventory.setItem(16, upgradeItem(player, Material.FURNACE, ChatColor.GOLD + "Forge Upgrade", "FORGE"));
-        inventory.setItem(28, upgradeItem(player, Material.TRIPWIRE_HOOK, ChatColor.RED + "Blindness Trap", "TRAP_BLIND"));
-        inventory.setItem(30, upgradeItem(player, Material.IRON_PICKAXE, ChatColor.GRAY + "Miner Fatigue Trap", "TRAP_MINER"));
-        inventory.setItem(32, upgradeItem(player, Material.FEATHER, ChatColor.GREEN + "Counter-Offensive Trap", "TRAP_COUNTER"));
-        inventory.setItem(34, upgradeItem(player, Material.GLOWSTONE_DUST, ChatColor.AQUA + "Reveal Trap", "TRAP_REVEAL"));
-        inventory.setItem(40, upgradeItem(player, Material.BEACON, ChatColor.LIGHT_PURPLE + "Heal Pool", "HEAL_POOL"));
+        inventory.setItem(11, upgradeItem(player, Material.IRON_CHESTPLATE, ChatColor.GREEN + "Reinforced Armor", "PROTECTION"));
+        inventory.setItem(12, upgradeItem(player, Material.GOLDEN_PICKAXE, ChatColor.YELLOW + "Maniac Miner", "HASTE"));
+        inventory.setItem(19, upgradeItem(player, Material.FURNACE, ChatColor.GOLD + "Forge", "FORGE"));
+        inventory.setItem(20, upgradeItem(player, Material.BEACON, ChatColor.LIGHT_PURPLE + "Heal Pool", "HEAL_POOL"));
+        inventory.setItem(21, upgradeItem(player, Material.DIAMOND_BOOTS, ChatColor.WHITE + "Cushioned Boots", "CUSHIONED_BOOTS"));
+        // Traps on the right
+        inventory.setItem(14, upgradeItem(player, Material.TRIPWIRE_HOOK, ChatColor.RED + "Blindness Trap", "TRAP_BLIND"));
+        inventory.setItem(15, upgradeItem(player, Material.IRON_PICKAXE, ChatColor.GRAY + "Miner Fatigue Trap", "TRAP_MINER"));
+        inventory.setItem(16, upgradeItem(player, Material.FEATHER, ChatColor.GREEN + "Counter-Offensive Trap", "TRAP_COUNTER"));
+        inventory.setItem(23, upgradeItem(player, Material.REDSTONE_TORCH, ChatColor.AQUA + "Reveal Trap", "TRAP_REVEAL"));
+        // Filler/divider row
+        for (int slot = 27; slot <= 35; slot++)
+            inventory.setItem(slot, infoItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
+        // Trap queue display
+        String team = eventManager.teamFor(player.getUniqueId());
+        List<String> traps = bedWarsTraps.getOrDefault(team, List.of());
+        for (int i = 0; i < 3; i++) {
+            int slot = 39 + i;
+            if (i < traps.size()) {
+                String trap = traps.get(i);
+                inventory.setItem(slot, trapQueueItem(trap, i));
+            } else {
+                inventory.setItem(slot, infoItemLines(Material.LIGHT_GRAY_STAINED_GLASS,
+                        ChatColor.GRAY + "Trap #" + (i + 1) + ": No Trap!",
+                        "The first enemy to walk into your base triggers this trap.",
+                        "Purchasing traps queues them here.",
+                        "Cost depends on number of queued traps.",
+                        ChatColor.AQUA + "Next trap: " + bedWarsUpgradeCost(team, "TRAP_BLIND") + " Diamond"));
+            }
+        }
         return inventory;
     }
 
-    private ItemStack shopItem(Material material, int amount, String name, int cost, Material currency, String category) {
-        return shopActionItem(material, amount, name, cost, currency, category, material.name());
-    }
-
-    private ItemStack shopActionItem(Material material, int amount, String name, int cost, Material currency,
-                                     String category, String action) {
-        ItemStack item = new ItemStack(material, amount);
+    private ItemStack trapQueueItem(String trap, int index) {
+        Material icon = switch (trap) {
+            case "TRAP_BLIND" -> Material.TRIPWIRE_HOOK;
+            case "TRAP_MINER" -> Material.IRON_PICKAXE;
+            case "TRAP_COUNTER" -> Material.FEATHER;
+            case "TRAP_REVEAL" -> Material.REDSTONE_TORCH;
+            default -> Material.BARRIER;
+        };
+        String name = switch (trap) {
+            case "TRAP_BLIND" -> ChatColor.RED + "Blindness Trap";
+            case "TRAP_MINER" -> ChatColor.GRAY + "Miner Fatigue Trap";
+            case "TRAP_COUNTER" -> ChatColor.GREEN + "Counter-Offensive Trap";
+            case "TRAP_REVEAL" -> ChatColor.AQUA + "Reveal Trap";
+            default -> ChatColor.RED + "Unknown Trap";
+        };
+        ItemStack item = new ItemStack(icon);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(name);
             meta.setLore(List.of(
-                    ChatColor.GRAY + category,
-                    ChatColor.YELLOW + "Cost: " + cost + " " + readableMaterial(currency)
+                    ChatColor.GRAY + "Queued trap #" + (index + 1),
+                    ChatColor.YELLOW + "Shift-Click to remove"
             ));
-            meta.getPersistentDataContainer().set(shopRewardKey, PersistentDataType.STRING, material.name());
-            meta.getPersistentDataContainer().set(shopCostKey, PersistentDataType.INTEGER, cost);
-            meta.getPersistentDataContainer().set(shopCurrencyKey, PersistentDataType.STRING, currency.name());
-            meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, action);
+            meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, "TRAP_REMOVE:" + trap + ":" + index);
             item.setItemMeta(meta);
         }
         return item;
@@ -2948,18 +4485,135 @@ public final class EventGameplayListener implements Listener {
     private ItemStack upgradeItem(Player player, Material material, String name, String action) {
         String team = eventManager.teamFor(player.getUniqueId());
         int cost = bedWarsUpgradeCost(team, action);
-        if (cost < 0) {
-            return infoItem(material, name, "Maximum level reached");
+        int level = getUpgradeLevel(team, action);
+        int maxLevel = switch (action) {
+            case "SHARPNESS" -> 1;
+            case "PROTECTION" -> 4;
+            case "HASTE" -> 2;
+            case "FORGE" -> 4;
+            case "TRAP_BLIND", "TRAP_MINER", "TRAP_COUNTER", "TRAP_REVEAL" -> 3;
+            case "HEAL_POOL" -> 1;
+            case "CUSHIONED_BOOTS" -> 2;
+            default -> 1;
+        };
+        boolean canAfford = countMaterial(player, Material.DIAMOND) >= cost;
+
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + buildUpgradeDescription(action));
+
+        // Tier list
+        lore.add("");
+        for (int i = 1; i <= maxLevel; i++) {
+            String tierLine;
+            if (i <= level) {
+                tierLine = ChatColor.GREEN + "Tier " + toRoman(i) + ": " + tierDescription(action, i) + " " + ChatColor.GREEN + "\u2714";
+            } else {
+                tierLine = ChatColor.GRAY + "Tier " + toRoman(i) + ": " + tierDescription(action, i);
+            }
+            lore.add(tierLine);
         }
-        return shopActionItem(material, 1, name, cost, Material.DIAMOND, "Team Upgrade", action);
+
+        lore.add("");
+        if (level >= maxLevel) {
+            lore.add(ChatColor.GREEN + "Maximum level reached.");
+        } else {
+            lore.add(ChatColor.AQUA + "Cost: " + cost + " Diamond" + (cost != 1 ? "s" : ""));
+            lore.add("");
+            if (canAfford) {
+                lore.add(ChatColor.YELLOW + "Click to purchase!");
+            } else {
+                lore.add(ChatColor.RED + "You don't have enough Diamonds!");
+            }
+        }
+
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName((level >= maxLevel ? ChatColor.GREEN : canAfford ? ChatColor.GREEN : ChatColor.RED) + ChatColor.stripColor(name));
+            meta.setLore(lore);
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+            meta.getPersistentDataContainer().set(shopActionKey, PersistentDataType.STRING, action);
+            meta.getPersistentDataContainer().set(shopCostKey, PersistentDataType.INTEGER, cost);
+            meta.getPersistentDataContainer().set(shopCurrencyKey, PersistentDataType.STRING, "DIAMOND");
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private String buildUpgradeDescription(String action) {
+        return switch (action) {
+            case "SHARPNESS" -> "Grants Sharpness I to your team's swords and axes.";
+            case "PROTECTION" -> "Grants Protection to your team's armor.";
+            case "HASTE" -> "Grants Haste (faster mining) to your team.";
+            case "FORGE" -> "Upgrades your team's resource generator.";
+            case "TRAP_BLIND" -> "Blinds and slows the first enemy to enter your base.";
+            case "TRAP_MINER" -> "Gives Mining Fatigue to the first enemy to enter your base.";
+            case "TRAP_COUNTER" -> "Grants your team Speed II and Jump Boost on trap activation.";
+            case "TRAP_REVEAL" -> "Reveals invisible enemies who enter your base.";
+            case "HEAL_POOL" -> "Grants Regeneration I to allies near your base.";
+            case "CUSHIONED_BOOTS" -> "Grants Feather Falling to your team's boots.";
+            default -> "Team upgrade.";
+        };
+    }
+
+    private String tierDescription(String action, int tier) {
+        return switch (action) {
+            case "SHARPNESS" -> "Sharpness I, " + (tier == 1 ? "4" : "-") + " Diamonds";
+            case "PROTECTION" -> "Protection " + toRoman(tier) + ", " + switch (tier) { case 1 -> "2"; case 2 -> "4"; case 3 -> "8"; case 4 -> "16"; default -> "?"; } + " Diamonds";
+            case "HASTE" -> "Haste " + toRoman(tier) + ", " + switch (tier) { case 1 -> "2"; case 2 -> "4"; default -> "?"; } + " Diamonds";
+            case "FORGE" -> switch (tier) {
+                case 1 -> "Iron Forge, 2 Diamonds";
+                case 2 -> "Gold Forge, 4 Diamonds";
+                case 3 -> "Emerald Forge, 6 Diamonds";
+                case 4 -> "Molten Forge, 8 Diamonds";
+                default -> "Forge " + tier;
+            };
+            case "TRAP_BLIND", "TRAP_MINER", "TRAP_COUNTER", "TRAP_REVEAL" -> "Trap " + tier + ", " + switch (tier) { case 1 -> "1"; case 2 -> "2"; case 3 -> "4"; default -> "?"; } + " Diamonds";
+            case "HEAL_POOL" -> "Heal Pool, 1 Diamond";
+            case "CUSHIONED_BOOTS" -> "Feather Falling " + toRoman(tier) + ", " + switch (tier) { case 1 -> "1"; case 2 -> "2"; default -> "?"; } + " Diamonds";
+            default -> "Tier " + tier;
+        };
+    }
+
+    private int getUpgradeLevel(String team, String action) {
+        return switch (action) {
+            case "SHARPNESS" -> bedWarsSharpnessTeams.contains(team) ? 1 : 0;
+            case "PROTECTION" -> bedWarsProtectionLevels.getOrDefault(team, 0);
+            case "HASTE" -> bedWarsHasteLevels.getOrDefault(team, 0);
+            case "FORGE" -> bedWarsForgeLevels.getOrDefault(team, 0);
+            case "TRAP_BLIND", "TRAP_MINER", "TRAP_COUNTER", "TRAP_REVEAL" -> bedWarsTraps.getOrDefault(team, List.of()).size();
+            case "HEAL_POOL" -> bedWarsHealPoolTeams.contains(team) ? 1 : 0;
+            case "CUSHIONED_BOOTS" -> bedWarsFeatherFallingLevels.getOrDefault(team, 0);
+            default -> 0;
+        };
+    }
+
+    private String toRoman(int n) {
+        return switch (n) {
+            case 1 -> "I";
+            case 2 -> "II";
+            case 3 -> "III";
+            case 4 -> "IV";
+            case 5 -> "V";
+            default -> String.valueOf(n);
+        };
     }
 
     private ItemStack infoItem(Material material, String name, String description) {
+        return infoItemLines(material, name, List.of(description));
+    }
+
+    private ItemStack infoItemLines(Material material, String name, String... descriptions) {
+        return infoItemLines(material, name, List.of(descriptions));
+    }
+
+    private ItemStack infoItemLines(Material material, String name, List<String> descriptions) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(name);
-            meta.setLore(List.of(ChatColor.GRAY + description));
+            meta.setLore(descriptions.stream().map(d -> ChatColor.GRAY + d).toList());
             item.setItemMeta(meta);
         }
         return item;
@@ -2970,42 +4624,226 @@ public final class EventGameplayListener implements Listener {
         if (meta == null) {
             return;
         }
-        String reward = meta.getPersistentDataContainer().get(shopRewardKey, PersistentDataType.STRING);
-        String action = meta.getPersistentDataContainer().get(shopActionKey, PersistentDataType.STRING);
+        String itemId = meta.getPersistentDataContainer().get(shopActionKey, PersistentDataType.STRING);
         Integer cost = meta.getPersistentDataContainer().get(shopCostKey, PersistentDataType.INTEGER);
         String currencyName = meta.getPersistentDataContainer().get(shopCurrencyKey, PersistentDataType.STRING);
-        if (reward == null || cost == null || currencyName == null) {
+        if (itemId == null || cost == null || currencyName == null || "EMPTY".equals(itemId) || "PAGE:".equals(itemId)) {
             return;
         }
         Material currency = Material.matchMaterial(currencyName);
-        Material rewardMaterial = Material.matchMaterial(reward);
-        if (rewardMaterial == null && action != null) {
-            rewardMaterial = shopEntry.getType();
-        }
-        if (currency == null || rewardMaterial == null) {
+        if (currency == null) {
             return;
         }
         if (countMaterial(player, currency) < cost) {
             player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You need " + cost + " " + readableMaterial(currency) + ".");
             return;
         }
-        boolean permanentArmor = action != null && action.startsWith("ARMOR_");
-        ItemStack rewardItem = permanentArmor ? null : createBedWarsReward(player, rewardMaterial, shopEntry.getAmount(), action);
-        if (!permanentArmor && player.getInventory().firstEmpty() == -1 && !player.getInventory().contains(rewardMaterial)) {
+
+        // Handle special item types
+        if (isArmorItem(itemId)) {
+            int tier = armorTierFromId(itemId);
+            int current = bedWarsArmorTiers.getOrDefault(player.getUniqueId(), 0);
+            if (tier <= current) {
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You already own this armor or better.");
+                return;
+            }
+            removeCurrency(player, currency, cost);
+            bedWarsArmorTiers.put(player.getUniqueId(), tier);
+            applyBedWarsArmor(player);
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Purchased " + readableArmor(itemId) + ".");
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8F, 1.4F);
+            player.openInventory(createBedWarsItemShop(player));
+            return;
+        }
+
+        if ("SHEARS".equals(itemId)) {
+            if (Boolean.TRUE.equals(bedWarsHasShears.get(player.getUniqueId()))) {
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You already own permanent shears.");
+                return;
+            }
+            removeCurrency(player, currency, cost);
+            bedWarsHasShears.put(player.getUniqueId(), true);
+            ItemStack shears = new ItemStack(Material.SHEARS);
+            applyBedWarsItemUpgrades(player, shears);
+            player.getInventory().addItem(shears);
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Purchased Permanent Shears.");
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8F, 1.4F);
+            player.openInventory(createBedWarsItemShop(player));
+            return;
+        }
+
+        if (isToolItem(itemId)) {
+            int tier = toolTierFromId(itemId);
+            boolean isPickaxe = isPickaxeId(itemId);
+            int currentTier = isPickaxe ? bedWarsPickaxeTiers.getOrDefault(player.getUniqueId(), 0)
+                    : bedWarsAxeTiers.getOrDefault(player.getUniqueId(), 0);
+            if (tier <= currentTier) {
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You already own this tool tier or higher.");
+                return;
+            }
+            if (tier > 1 && currentTier + 1 < tier) {
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You must buy the previous tier first.");
+                return;
+            }
+            removeCurrency(player, currency, cost);
+            if (isPickaxe) {
+                removeInventoryPickaxe(player);
+                bedWarsPickaxeTiers.put(player.getUniqueId(), tier);
+            } else {
+                removeInventoryAxe(player);
+                bedWarsAxeTiers.put(player.getUniqueId(), tier);
+            }
+            ItemStack tool = createBedWarsReward(player, shopEntry.getType(), 1, itemId);
+            player.getInventory().addItem(tool);
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Purchased " + readableItem(itemId) + ".");
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8F, 1.4F);
+            player.openInventory(createBedWarsItemShop(player));
+            return;
+        }
+
+        // Generic shop item
+        ItemStack rewardItem = createBedWarsReward(player, shopEntry.getType(), shopEntry.getAmount(), itemId);
+        if (rewardItem == null || rewardItem.getType().isAir()) {
+            // Items like potions create their own reward
+            removeCurrency(player, currency, cost);
+            createAndDeliverReward(player, itemId, shopEntry.getAmount());
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Purchased " + readableItem(itemId) + ".");
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8F, 1.4F);
+            return;
+        }
+        if (player.getInventory().firstEmpty() == -1) {
             player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "Your inventory is full.");
             return;
         }
+        // Replace wooden sword if buying a better sword
+        if (itemId != null && (itemId.equals("STONE_SWORD") || itemId.equals("IRON_SWORD") || itemId.equals("DIAMOND_SWORD"))) {
+            removeInventoryWoodenSword(player);
+        }
         removeCurrency(player, currency, cost);
-        if (permanentArmor) {
-            applyPurchasedBedWarsArmor(player, action);
-        } else {
-            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(rewardItem);
+        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(rewardItem);
+        for (ItemStack leftover : leftovers.values()) {
+            player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+        }
+        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Purchased " + readableItem(itemId) + ".");
+        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8F, 1.4F);
+    }
+
+    private boolean isArmorItem(String itemId) {
+        return "CHAINMAIL_ARMOR".equals(itemId) || "IRON_ARMOR".equals(itemId) || "DIAMOND_ARMOR".equals(itemId);
+    }
+
+    private int armorTierFromId(String itemId) {
+        return switch (itemId) {
+            case "CHAINMAIL_ARMOR" -> 1;
+            case "IRON_ARMOR" -> 2;
+            case "DIAMOND_ARMOR" -> 3;
+            default -> 0;
+        };
+    }
+
+    private boolean isToolItem(String itemId) {
+        return itemId != null && (itemId.endsWith("_PICKAXE") || itemId.endsWith("_AXE"));
+    }
+
+    private int toolTierFromId(String itemId) {
+        return switch (itemId) {
+            case "WOODEN_PICKAXE", "WOODEN_AXE" -> 1;
+            case "IRON_PICKAXE", "STONE_AXE" -> 2;
+            case "GOLD_PICKAXE", "IRON_AXE" -> 3;
+            case "DIAMOND_PICKAXE", "DIAMOND_AXE" -> 4;
+            default -> 0;
+        };
+    }
+
+    private void removeInventoryPickaxe(Player player) {
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType().name().endsWith("_PICKAXE")) {
+                item.setAmount(0);
+            }
+        }
+    }
+
+    private void removeInventoryAxe(Player player) {
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType().name().endsWith("_AXE")) {
+                item.setAmount(0);
+            }
+        }
+    }
+
+    private void removeInventoryWoodenSword(Player player) {
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == Material.WOODEN_SWORD) {
+                item.setAmount(0);
+                return;
+            }
+        }
+    }
+
+    private void createAndDeliverReward(Player player, String itemId, int amount) {
+        ItemStack reward = createBedWarsReward(player, Material.AIR, amount, itemId);
+        if (reward != null && !reward.getType().isAir()) {
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(reward);
             for (ItemStack leftover : leftovers.values()) {
                 player.getWorld().dropItemNaturally(player.getLocation(), leftover);
             }
         }
-        player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Purchased " + readableMaterial(rewardMaterial) + ".");
-        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8F, 1.4F);
+    }
+
+    private String readableItem(String itemId) {
+        return switch (itemId) {
+            case "WOOL" -> "Wool";
+            case "HARDENED_CLAY" -> "Hardened Clay";
+            case "BLAST_PROOF_GLASS" -> "Blast-Proof Glass";
+            case "END_STONE" -> "End Stone";
+            case "LADDER" -> "Ladder";
+            case "OAK_PLANKS" -> "Wood Planks";
+            case "OBSIDIAN" -> "Obsidian";
+            case "STONE_SWORD" -> "Stone Sword";
+            case "IRON_SWORD" -> "Iron Sword";
+            case "DIAMOND_SWORD" -> "Diamond Sword";
+            case "KNOCKBACK_STICK" -> "Knockback Stick";
+            case "CHAINMAIL_ARMOR" -> "Chainmail Armor";
+            case "IRON_ARMOR" -> "Iron Armor";
+            case "DIAMOND_ARMOR" -> "Diamond Armor";
+            case "SHEARS" -> "Shears";
+            case "WOODEN_PICKAXE" -> "Wooden Pickaxe";
+            case "IRON_PICKAXE" -> "Iron Pickaxe";
+            case "GOLD_PICKAXE" -> "Golden Pickaxe";
+            case "DIAMOND_PICKAXE" -> "Diamond Pickaxe";
+            case "WOODEN_AXE" -> "Wooden Axe";
+            case "STONE_AXE" -> "Stone Axe";
+            case "IRON_AXE" -> "Iron Axe";
+            case "DIAMOND_AXE" -> "Diamond Axe";
+            case "BOW" -> "Bow";
+            case "POWER_BOW" -> "Bow (Power I)";
+            case "PUNCH_BOW" -> "Bow (Power I, Punch I)";
+            case "ARROWS" -> "Arrows";
+            case "SPEED_POTION" -> "Speed II Potion";
+            case "JUMP_POTION" -> "Jump V Potion";
+            case "INVISIBILITY_POTION" -> "Invisibility Potion";
+            case "GOLDEN_APPLE" -> "Golden Apple";
+            case "BED_BUG" -> "Bed Bug";
+            case "DREAM_DEFENDER" -> "Dream Defender";
+            case "FIREBALL" -> "Fireball";
+            case "TNT" -> "TNT";
+            case "ENDER_PEARL" -> "Ender Pearl";
+            case "WATER_BUCKET" -> "Water Bucket";
+            case "BRIDGE_EGG" -> "Bridge Egg";
+            case "MAGIC_MILK" -> "Magic Milk";
+            case "SPONGE" -> "Sponge";
+            case "POPUP_TOWER" -> "Pop-up Tower";
+            default -> itemId;
+        };
+    }
+
+    private String readableArmor(String itemId) {
+        return switch (itemId) {
+            case "CHAINMAIL_ARMOR" -> "Chainmail Armor";
+            case "IRON_ARMOR" -> "Iron Armor";
+            case "DIAMOND_ARMOR" -> "Diamond Armor";
+            default -> itemId;
+        };
     }
 
     private ItemStack createBedWarsReward(Player player, Material material, int amount, String action) {
@@ -3014,34 +4852,98 @@ public final class EventGameplayListener implements Listener {
             return item;
         }
         switch (action) {
-            case "KNOCKBACK_STICK" -> item.addUnsafeEnchantment(Enchantment.KNOCKBACK, 1);
-            case "POWER_BOW" -> item.addUnsafeEnchantment(Enchantment.POWER, 1);
+            case "KNOCKBACK_STICK" -> {
+                item.setType(Material.STICK);
+                item.addUnsafeEnchantment(Enchantment.KNOCKBACK, 1);
+            }
+            case "POWER_BOW" -> {
+                item.setType(Material.BOW);
+                item.addUnsafeEnchantment(Enchantment.POWER, 1);
+            }
             case "PUNCH_BOW" -> {
+                item.setType(Material.BOW);
                 item.addUnsafeEnchantment(Enchantment.POWER, 1);
                 item.addUnsafeEnchantment(Enchantment.PUNCH, 1);
             }
-            case "SPEED_POTION" -> addPotionEffect(item, PotionEffectType.SPEED, 45, 1);
-            case "JUMP_POTION" -> addPotionEffect(item, PotionEffectType.JUMP_BOOST, 45, 4);
-            case "INVIS_POTION" -> addPotionEffect(item, PotionEffectType.INVISIBILITY, 30, 0);
-            default -> {
+            case "SPEED_POTION" -> {
+                ItemStack potion = new ItemStack(Material.POTION);
+                if (potion.getItemMeta() instanceof PotionMeta pm) {
+                    pm.setBasePotionType(PotionType.SWIFTNESS);
+                    pm.addCustomEffect(new PotionEffect(PotionEffectType.SPEED, 45 * 20, 1), true);
+                    pm.setDisplayName(ChatColor.AQUA + "Speed II Potion (45 sec)");
+                    pm.setLore(List.of());
+                    potion.setItemMeta(pm);
+                }
+                return potion;
             }
+            case "JUMP_POTION" -> {
+                ItemStack potion = new ItemStack(Material.POTION);
+                if (potion.getItemMeta() instanceof PotionMeta pm) {
+                    pm.setBasePotionType(PotionType.LEAPING);
+                    pm.addCustomEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, 45 * 20, 4), true);
+                    pm.setDisplayName(ChatColor.GREEN + "Jump V Potion (45 sec)");
+                    pm.setLore(List.of());
+                    potion.setItemMeta(pm);
+                }
+                return potion;
+            }
+            case "INVISIBILITY_POTION" -> {
+                ItemStack potion = new ItemStack(Material.POTION);
+                if (potion.getItemMeta() instanceof PotionMeta pm) {
+                    pm.setBasePotionType(PotionType.INVISIBILITY);
+                    pm.addCustomEffect(new PotionEffect(PotionEffectType.INVISIBILITY, 30 * 20, 0), true);
+                    pm.setDisplayName(ChatColor.GRAY + "Invisibility Potion (30 sec)");
+                    pm.setLore(List.of());
+                    potion.setItemMeta(pm);
+                }
+                return potion;
+            }
+            case "WOODEN_PICKAXE" -> {
+                item.setType(Material.WOODEN_PICKAXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 1);
+            }
+            case "IRON_PICKAXE" -> {
+                item.setType(Material.IRON_PICKAXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 2);
+            }
+            case "GOLD_PICKAXE" -> {
+                item.setType(Material.GOLDEN_PICKAXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 3);
+                item.addUnsafeEnchantment(Enchantment.SHARPNESS, 2);
+            }
+            case "DIAMOND_PICKAXE" -> {
+                item.setType(Material.DIAMOND_PICKAXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 3);
+            }
+            case "WOODEN_AXE" -> {
+                item.setType(Material.WOODEN_AXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 1);
+            }
+            case "STONE_AXE" -> {
+                item.setType(Material.STONE_AXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 1);
+            }
+            case "IRON_AXE" -> {
+                item.setType(Material.IRON_AXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 2);
+            }
+            case "DIAMOND_AXE" -> {
+                item.setType(Material.DIAMOND_AXE);
+                item.addUnsafeEnchantment(Enchantment.EFFICIENCY, 3);
+            }
+            case "FIREBALL" -> {
+                item.setType(Material.FIRE_CHARGE);
+                item.addUnsafeEnchantment(Enchantment.UNBREAKING, 1);
+                ItemMeta meta = item.getItemMeta();
+                if (meta != null) {
+                    meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+                    item.setItemMeta(meta);
+                }
+            }
+            default -> {}
         }
         applyBedWarsItemUpgrades(player, item);
         return item;
-    }
-
-    private void applyPurchasedBedWarsArmor(Player player, String action) {
-        int tier = switch (action) {
-            case "ARMOR_CHAIN" -> 1;
-            case "ARMOR_IRON" -> 2;
-            case "ARMOR_DIAMOND" -> 3;
-            default -> 0;
-        };
-        if (tier <= 0) {
-            return;
-        }
-        bedWarsArmorTiers.put(player.getUniqueId(), Math.max(tier, bedWarsArmorTiers.getOrDefault(player.getUniqueId(), 0)));
-        applyBedWarsArmor(player);
     }
 
     private void addPotionEffect(ItemStack item, PotionEffectType type, int seconds, int amplifier) {
@@ -3050,6 +4952,13 @@ public final class EventGameplayListener implements Listener {
         }
         meta.addCustomEffect(new PotionEffect(type, seconds * 20, amplifier), true);
         item.setItemMeta(meta);
+    }
+
+    private void setPotionShopIcon(ItemStack item, PotionType potionType) {
+        if (item.getItemMeta() instanceof PotionMeta meta) {
+            meta.setBasePotionType(potionType);
+            item.setItemMeta(meta);
+        }
     }
 
     private void buyBedWarsUpgrade(Player player, ItemStack shopEntry) {
@@ -3091,6 +5000,7 @@ public final class EventGameplayListener implements Listener {
             case "TRAP_BLIND", "TRAP_MINER", "TRAP_COUNTER", "TRAP_REVEAL" ->
                     nextTierCost(bedWarsTraps.getOrDefault(team, List.of()).size(), 1, 2, 4);
             case "HEAL_POOL" -> bedWarsHealPoolTeams.contains(team) ? -1 : 1;
+            case "CUSHIONED_BOOTS" -> nextTierCost(bedWarsFeatherFallingLevels.getOrDefault(team, 0), 1, 2);
             default -> -1;
         };
     }
@@ -3108,6 +5018,7 @@ public final class EventGameplayListener implements Listener {
             case "TRAP_BLIND", "TRAP_MINER", "TRAP_COUNTER", "TRAP_REVEAL" ->
                     bedWarsTraps.computeIfAbsent(team, ignored -> new ArrayList<>()).add(action);
             case "HEAL_POOL" -> bedWarsHealPoolTeams.add(team);
+            case "CUSHIONED_BOOTS" -> bedWarsFeatherFallingLevels.merge(team, 1, Integer::sum);
             default -> {
             }
         }
@@ -3124,6 +5035,7 @@ public final class EventGameplayListener implements Listener {
             case "TRAP_COUNTER" -> "Counter-Offensive Trap";
             case "TRAP_REVEAL" -> "Reveal Trap";
             case "HEAL_POOL" -> "Heal Pool";
+            case "CUSHIONED_BOOTS" -> "Cushioned Boots";
             default -> action;
         };
     }

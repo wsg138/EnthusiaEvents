@@ -472,6 +472,15 @@ public final class SetupWizard {
         }
         CuboidRegion previous = map.areas().get(key);
         CuboidRegion area = CuboidRegion.fromCorners(pos1, pos2);
+        if (map.eventType() == EventType.CAPTURE_PLAYERS
+                && (key.startsWith("capture-zone-") || key.startsWith("jail-zone-") || key.startsWith("free-zone-"))) {
+            World world = Bukkit.getWorld(area.worldName());
+            if (world != null) {
+                area = CuboidRegion.fromCorners(
+                        new Location(world, area.minX(), area.minY(), area.minZ()),
+                        new Location(world, area.maxX(), area.maxY() + 3, area.maxZ()));
+            }
+        }
         map.areas().put(key, area);
         mapSetupService.save();
         record(player, SetupAction.area(key, previous, area, markerBlock));
@@ -635,6 +644,7 @@ public final class SetupWizard {
             player.getInventory().setItem(2, tool(Material.VILLAGER_SPAWN_EGG, SetupTool.POINT, "team-item-shop", "Team Item Shop"));
             player.getInventory().setItem(3, tool(Material.CHEST, SetupTool.POINT, "team-upgrade-shop", "Team Upgrade Shop"));
             player.getInventory().setItem(4, tool(Material.RED_BED, SetupTool.POINT, "team-bed", "Team Bed"));
+            player.getInventory().setItem(5, tool(Material.BEACON, SetupTool.POINT, "team-heal-pool", "Team Heal Pool"));
             player.getInventory().setItem(6, tool(Material.NAME_TAG, SetupTool.TEAM, "cycle", "Switch Team (Current " + displayTeam(selectedTeam(player)) + ")"));
             player.getInventory().setItem(7, tool(Material.ARROW, SetupTool.PAGE, "bedwars-main", "Universal Tools"));
             giveTeamSelectors(player);
@@ -1145,7 +1155,17 @@ public final class SetupWizard {
     }
 
     private Material areaMarker(String key) {
-        return switch (key.toLowerCase(Locale.ROOT)) {
+        String lower = key.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("capture-zone-")) {
+            return Material.CHAIN;
+        }
+        if (lower.startsWith("jail-zone-")) {
+            return Material.IRON_BARS;
+        }
+        if (lower.startsWith("free-zone-")) {
+            return Material.LIME_BANNER;
+        }
+        return switch (lower) {
             case "color-floor" -> Material.NOTE_BLOCK;
             case "release-wall" -> Material.GLASS;
             case "light-display" -> Material.REDSTONE_LAMP;
@@ -1317,8 +1337,13 @@ public final class SetupWizard {
             return "area";
         }
         String lower = value.toLowerCase(Locale.ROOT);
+        SetupSession session = sessions.get(player.getUniqueId());
         if (lower.equals("team-base")) {
             return "base-" + selectedTeam(player);
+        }
+        if (session != null && session.eventType() == EventType.CAPTURE_PLAYERS
+                && (lower.equals("capture-zone") || lower.equals("jail-zone") || lower.equals("free-zone"))) {
+            return lower + "-" + selectedTeam(player);
         }
         if (lower.equals("checkpoint")) {
             return nextId("checkpoint-", (int) eventAreaCount(player, "checkpoint-") + 1);

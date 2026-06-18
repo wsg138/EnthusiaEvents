@@ -186,7 +186,31 @@ public final class EventScoreboardService {
         String redScore = eventManager.runtimeScoreboardValue("ctf-score-red", eventManager.runtimeScoreboardValue("ctf-score-1", "0"));
         String blueScore = eventManager.runtimeScoreboardValue("ctf-score-blue", eventManager.runtimeScoreboardValue("ctf-score-2", "0"));
         String quakeScore = eventManager.runtimeScoreboardValue("quake-score-" + player.getUniqueId(), "0");
+        String captureRound = eventManager.runtimeScoreboardValue("capture-players-round", "1");
+        String captureRedWins = eventManager.runtimeScoreboardValue("capture-players-round-win-red",
+                eventManager.runtimeScoreboardValue("capture-players-round-win-1", "0"));
+        String captureBlueWins = eventManager.runtimeScoreboardValue("capture-players-round-win-blue",
+                eventManager.runtimeScoreboardValue("capture-players-round-win-2", "0"));
+        String captureRedJailed = eventManager.runtimeScoreboardValue("capture-players-jailed-red",
+                eventManager.runtimeScoreboardValue("capture-players-jailed-1", "0"));
+        String captureBlueJailed = eventManager.runtimeScoreboardValue("capture-players-jailed-blue",
+                eventManager.runtimeScoreboardValue("capture-players-jailed-2", "0"));
         int blank = 0;
+        // Build quake top 5
+        List<Map.Entry<UUID, String>> quakeSorted = new ArrayList<>();
+        for (UUID uuid : session.participants()) {
+            String score = eventManager.runtimeScoreboardValue("quake-score-" + uuid, "0");
+            if (!"0".equals(score)) {
+                quakeSorted.add(Map.entry(uuid, score));
+            }
+        }
+        quakeSorted.sort((a, b) -> Integer.compare(Integer.parseInt(b.getValue()), Integer.parseInt(a.getValue())));
+        String[] top5 = {"-", "-", "-", "-", "-"};
+        for (int i = 0; i < Math.min(5, quakeSorted.size()); i++) {
+            org.bukkit.OfflinePlayer p = Bukkit.getOfflinePlayer(quakeSorted.get(i).getKey());
+            String name = p.getName() == null ? "?" : p.getName();
+            top5[i] = name + ": " + quakeSorted.get(i).getValue();
+        }
         for (String configuredLine : template) {
             String line = configuredLine
                     .replace("{event}", session.definition().displayName())
@@ -202,6 +226,16 @@ public final class EventScoreboardService {
                     .replace("{redscore}", redScore)
                     .replace("{bluescore}", blueScore)
                     .replace("{score}", quakeScore)
+                    .replace("{capture_round}", captureRound)
+                    .replace("{capture_red_wins}", captureRedWins)
+                    .replace("{capture_blue_wins}", captureBlueWins)
+                    .replace("{capture_red_jailed}", captureRedJailed)
+                    .replace("{capture_blue_jailed}", captureBlueJailed)
+                    .replace("{top1}", top5[0])
+                    .replace("{top2}", top5[1])
+                    .replace("{top3}", top5[2])
+                    .replace("{top4}", top5[3])
+                    .replace("{top5}", top5[4])
                     .replace("{checkpoint}", eventManager.runtimeScoreboardValue("checkpoint-" + player.getUniqueId(), "-"))
                     .replace("{map}", map);
             if (line.isBlank()) {
@@ -232,7 +266,8 @@ public final class EventScoreboardService {
             String teamMarker = teamColorCode(team) + "\u25A0";
             String bedMarker = bedAlive ? "&a\u2714" : "&c\u2716";
             String playerMarker = playersAlive > 0 ? "&f" + playersAlive : "&8\u2716";
-            lines.add(color(teamMarker + "          " + bedMarker + "       " + playerMarker));
+            // Center markers under "Team     Bed   Players" header
+            lines.add(color(" " + teamMarker + "        " + bedMarker + "      " + playerMarker));
         }
         lines.add(uniqueBlank(1));
         lines.add(color("&8" + (session.selectedMap() == null ? "" : session.selectedMap().id())));
@@ -293,12 +328,17 @@ public final class EventScoreboardService {
                     "&e&lQuake",
                     "&7Time left: &e{timeleft}",
                     "",
-                    "&7Score: &f{score}",
-                    "&7Players: &f{players}",
+                    "&7Top Players:",
+                    "&f{top1}",
+                    "&f{top2}",
+                    "&f{top3}",
+                    "&f{top4}",
+                    "&f{top5}",
                     "",
+                    "&7Players: &f{players}",
                     "&8{map}"
             );
-            case FIGHT_2V2, SUMO_2V2, CAPTURE_PLAYERS -> List.of(
+            case FIGHT_2V2, SUMO_2V2 -> List.of(
                     "&8&m---------------",
                     "&6&l{event}",
                     "&7Team: &f{team}",
@@ -306,6 +346,20 @@ public final class EventScoreboardService {
                     "",
                     "&7Players: &f{players}",
                     "&7Spectators: &f{spectators}",
+                    "",
+                    "&8{map}"
+            );
+            case CAPTURE_PLAYERS -> List.of(
+                    "&8&m---------------",
+                    "&6&lCapture Players",
+                    "&7Team: &f{team}",
+                    "&7Time left: &e{timeleft}",
+                    "",
+                    "&7Round: &f{capture_round}",
+                    "&cRed Wins: &f{capture_red_wins}",
+                    "&9Blue Wins: &f{capture_blue_wins}",
+                    "&cRed Jailed: &f{capture_red_jailed}",
+                    "&9Blue Jailed: &f{capture_blue_jailed}",
                     "",
                     "&8{map}"
             );

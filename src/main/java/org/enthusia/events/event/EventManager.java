@@ -6,6 +6,7 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Color;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -549,10 +550,14 @@ public final class EventManager {
             podiumService.show(rankedPlayers);
         }
         if (!rankedPlayers.isEmpty()) {
-            UUID winner = rankedPlayers.getFirst();
-            statsService.recordWin(winner, session.definition().type());
+            Set<UUID> winners = session.definition().type() == EventType.CAPTURE_PLAYERS
+                    ? Set.copyOf(rankedPlayers)
+                    : Set.of(rankedPlayers.getFirst());
+            for (UUID winner : winners) {
+                statsService.recordWin(winner, session.definition().type());
+            }
             for (UUID uuid : session.participants()) {
-                if (!uuid.equals(winner)) {
+                if (!winners.contains(uuid)) {
                     statsService.recordLoss(uuid, session.definition().type());
                 }
             }
@@ -879,8 +884,8 @@ public final class EventManager {
                 Player player = Bukkit.getPlayer(uuid);
                 if (player != null) {
                     Map.Entry<String, Location> spawn = spawns.get(index % spawns.size());
-                    prepareActivePlayer(player, session.definition().type());
                     session.teams().put(uuid, teamFromSpawnKey(spawn.getKey(), index));
+                    prepareActivePlayer(player, session.definition().type());
                     allowTeleport(uuid);
                     teleports.add(TeleportService.teleport(plugin, player, spawn.getValue(), "event spawn").thenApply(success -> {
                         if (success && session != null && session.definition().type() == EventType.BOAT_RACE && boatRaceService != null) {
@@ -1115,6 +1120,28 @@ public final class EventManager {
                 .toList();
     }
 
+    private List<UUID> ctfTimerWinners(EventSession session) {
+        if (session == null) return List.of();
+        Map<String, Integer> scores = new HashMap<>();
+        for (String team : session.teams().values().stream().distinct().toList()) {
+            String key = "ctf-score-" + team.toLowerCase(Locale.ROOT);
+            int score = Integer.parseInt(runtimeScoreboardValues.getOrDefault(key, "0"));
+            scores.put(team, score);
+        }
+        int maxScore = scores.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        if (maxScore <= 0) return List.of();
+        List<String> winningTeams = scores.entrySet().stream()
+                .filter(e -> e.getValue() == maxScore)
+                .map(Map.Entry::getKey)
+                .toList();
+        if (winningTeams.size() != 1) return List.of(); // tie = no winner
+        String winner = winningTeams.getFirst();
+        return session.teams().entrySet().stream()
+                .filter(e -> winner.equals(e.getValue()) && session.participants().contains(e.getKey()))
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
     private int runtimeScore(String prefix, UUID uuid) {
         String value = runtimeScoreboardValues.get(prefix + uuid);
         if (value == null || value.isBlank()) {
@@ -1219,7 +1246,8 @@ public final class EventManager {
         if (reward <= 0.0D) {
             return;
         }
-        List<UUID> winners = finished.definition().type() == EventType.CAPTURE_THE_FLAG
+        List<UUID> winners = (finished.definition().type() == EventType.CAPTURE_THE_FLAG
+                || finished.definition().type() == EventType.CAPTURE_PLAYERS)
                 ? finished.finalRankings()
                 : List.of(finished.finalRankings().getFirst());
         for (UUID winner : winners) {
@@ -1233,7 +1261,10 @@ public final class EventManager {
     }
 
     private String winnerNames(List<UUID> rankings) {
-        int limit = session != null && session.definition().type() == EventType.CAPTURE_THE_FLAG ? Integer.MAX_VALUE : 1;
+        int limit = session != null
+                && (session.definition().type() == EventType.CAPTURE_THE_FLAG
+                || session.definition().type() == EventType.CAPTURE_PLAYERS)
+                ? Integer.MAX_VALUE : 1;
         return rankings.stream()
                 .limit(limit)
                 .map(uuid -> {
@@ -1298,12 +1329,44 @@ public final class EventManager {
                 if (session != null && session.phase() == EventPhase.ACTIVE) {
                     if (session.definition().type() == EventType.QUAKE) {
                         endActiveEvent(rankedByRuntimeScore("quake-score-"));
+                    } else if (session.definition().type() == EventType.CAPTURE_THE_FLAG) {
+                        endActiveEvent(ctfTimerWinners(session));
+                    } else if (session.definition().type() == EventType.CAPTURE_PLAYERS) {
+                        endActiveEvent(capturePlayersTimerWinners(session));
                     } else {
                         endActiveEvent(List.copyOf(session.finalRankings()));
                     }
                 }
             }
         }, seconds * 20L);
+    }
+
+    private List<UUID> capturePlayersTimerWinners(EventSession session) {
+        if (session == null) {
+            return List.of();
+        }
+        Map<String, Integer> scores = new HashMap<>();
+        for (String team : session.teams().values().stream().distinct().toList()) {
+            int score = Integer.parseInt(runtimeScoreboardValues.getOrDefault(
+                    "capture-players-round-win-" + team.toLowerCase(Locale.ROOT), "0"));
+            scores.put(team, score);
+        }
+        int maxScore = scores.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        if (maxScore <= 0) {
+            return List.of();
+        }
+        List<String> winners = scores.entrySet().stream()
+                .filter(entry -> entry.getValue() == maxScore)
+                .map(Map.Entry::getKey)
+                .toList();
+        if (winners.size() != 1) {
+            return List.of();
+        }
+        String winner = winners.getFirst();
+        return session.teams().entrySet().stream()
+                .filter(entry -> winner.equals(entry.getValue()) && session.participants().contains(entry.getKey()))
+                .map(Map.Entry::getKey)
+                .toList();
     }
 
     private void cancelActiveTask() {
@@ -1493,10 +1556,28 @@ public final class EventManager {
         player.setFoodLevel(20);
         player.setSaturation(10.0F);
         switch (type) {
-            case PARKOUR, CAPTURE_PLAYERS, BLOCK_PARTY, HOT_POTATO, RED_LIGHT_GREEN_LIGHT -> player.setGameMode(GameMode.ADVENTURE);
+            case PARKOUR, BLOCK_PARTY, HOT_POTATO, RED_LIGHT_GREEN_LIGHT -> player.setGameMode(GameMode.ADVENTURE);
+            case CAPTURE_PLAYERS -> {
+                player.setGameMode(GameMode.SURVIVAL);
+                String captureTeam = session != null ? session.teams().get(player.getUniqueId()) : null;
+                player.getInventory().setHelmet(captureTeam == null ? new ItemStack(Material.LEATHER_HELMET) : coloredLeatherHelmet(captureTeam));
+                player.getInventory().setChestplate(new ItemStack(Material.DIAMOND_CHESTPLATE));
+                player.getInventory().setLeggings(new ItemStack(Material.IRON_LEGGINGS));
+                player.getInventory().setBoots(new ItemStack(Material.DIAMOND_BOOTS));
+                player.getInventory().addItem(namedItem(Material.NETHERITE_SWORD, "Capture Sword"));
+                player.getInventory().addItem(namedItem(Material.IRON_AXE, "Capture Axe"));
+                player.getInventory().addItem(new ItemStack(Material.GOLDEN_APPLE, 2));
+                player.getInventory().addItem(new ItemStack(Material.COOKED_BEEF, 8));
+                player.getInventory().setItemInOffHand(namedItem(Material.SHIELD, "Capture Shield"));
+            }
             case CAPTURE_THE_FLAG -> {
                 player.setGameMode(GameMode.SURVIVAL);
-                equipArmor(player, Material.CHAINMAIL_HELMET, Material.CHAINMAIL_CHESTPLATE, Material.CHAINMAIL_LEGGINGS, Material.CHAINMAIL_BOOTS);
+                // Iron leggings, diamond chestplate, diamond boots, team-colored leather helmet
+                String ctfTeam = session != null ? session.teams().get(player.getUniqueId()) : null;
+                player.getInventory().setHelmet(ctfTeam == null ? new ItemStack(Material.LEATHER_HELMET) : coloredLeatherHelmet(ctfTeam));
+                player.getInventory().setChestplate(new ItemStack(Material.DIAMOND_CHESTPLATE));
+                player.getInventory().setLeggings(new ItemStack(Material.IRON_LEGGINGS));
+                player.getInventory().setBoots(new ItemStack(Material.DIAMOND_BOOTS));
                 player.getInventory().addItem(namedItem(Material.IRON_SWORD, "CTF Sword"));
                 player.getInventory().addItem(namedItem(Material.IRON_AXE, "CTF Axe"));
                 player.getInventory().addItem(namedItem(Material.BOW, "CTF Bow"));
@@ -1514,8 +1595,10 @@ public final class EventManager {
             case ELYTRA_RACE -> {
                 player.setGameMode(GameMode.SURVIVAL);
                 player.getInventory().setChestplate(namedItem(Material.ELYTRA, "Race Elytra"));
-                player.getInventory().addItem(namedItem(Material.FIREWORK_ROCKET, "Race Rockets", 16));
-                player.getInventory().addItem(namedItem(Material.RECOVERY_COMPASS, "Checkpoint Return"));
+                player.getInventory().setItem(8, namedItem(Material.RECOVERY_COMPASS, "Checkpoint Return"));
+                // One heart only
+                player.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).setBaseValue(2.0D);
+                player.setHealth(2.0D);
             }
             case SPLEEF -> {
                 player.setGameMode(GameMode.SURVIVAL);
@@ -1564,6 +1647,9 @@ public final class EventManager {
             }
             case BEDWARS -> {
                 player.setGameMode(GameMode.SURVIVAL);
+                // Starter kit: leather armor + wooden sword
+                // May need to retry if team not yet assigned
+                equipBedWarsStarterKit(player);
             }
             default -> player.setGameMode(GameMode.SURVIVAL);
         }
@@ -1590,6 +1676,64 @@ public final class EventManager {
         player.getInventory().setChestplate(new ItemStack(chestplate));
         player.getInventory().setLeggings(new ItemStack(leggings));
         player.getInventory().setBoots(new ItemStack(boots));
+    }
+
+    private ItemStack leatherArmorItem(Material material, Color color) {
+        ItemStack item = new ItemStack(material);
+        if (item.getItemMeta() instanceof org.bukkit.inventory.meta.LeatherArmorMeta meta) {
+            meta.setColor(color);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private void equipBedWarsStarterKit(Player player) {
+        String bwTeam = session != null ? session.teams().get(player.getUniqueId()) : null;
+        if (bwTeam == null) {
+            // Retry in 1 tick — team assignment may be pending
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (session != null && session.phase() == EventPhase.ACTIVE
+                        && session.definition().type() == EventType.BEDWARS
+                        && session.participants().contains(player.getUniqueId())) {
+                    equipBedWarsStarterKit(player);
+                }
+            });
+            return;
+        }
+        Color teamColor = switch (bwTeam.toLowerCase(Locale.ROOT)) {
+            case "1", "red" -> Color.fromRGB(255, 0, 0);
+            case "2", "blue" -> Color.fromRGB(0, 80, 255);
+            case "3", "green" -> Color.fromRGB(0, 255, 0);
+            case "4", "yellow" -> Color.fromRGB(255, 255, 0);
+            case "5", "orange" -> Color.fromRGB(255, 165, 0);
+            case "6", "purple" -> Color.fromRGB(128, 0, 128);
+            case "7", "cyan" -> Color.fromRGB(0, 255, 255);
+            default -> Color.fromRGB(255, 255, 255);
+        };
+        ItemStack helmet = leatherArmorItem(Material.LEATHER_HELMET, teamColor);
+        helmet.addUnsafeEnchantment(Enchantment.AQUA_AFFINITY, 1);
+        player.getInventory().setHelmet(helmet);
+        player.getInventory().setChestplate(leatherArmorItem(Material.LEATHER_CHESTPLATE, teamColor));
+        player.getInventory().setLeggings(leatherArmorItem(Material.LEATHER_LEGGINGS, teamColor));
+        player.getInventory().setBoots(leatherArmorItem(Material.LEATHER_BOOTS, teamColor));
+        player.getInventory().addItem(new ItemStack(Material.WOODEN_SWORD));
+        player.getInventory().setItemInOffHand(null);
+    }
+
+    private ItemStack coloredLeatherHelmet(String team) {
+        ItemStack item = new ItemStack(Material.LEATHER_HELMET);
+        if (item.getItemMeta() instanceof org.bukkit.inventory.meta.LeatherArmorMeta meta) {
+            Color color = switch (team == null ? "" : team.toLowerCase(Locale.ROOT)) {
+                case "1", "red" -> Color.fromRGB(255, 0, 0);
+                case "2", "blue" -> Color.fromRGB(0, 80, 255);
+                case "3", "green" -> Color.fromRGB(0, 255, 0);
+                case "4", "yellow" -> Color.fromRGB(255, 255, 0);
+                default -> Color.fromRGB(255, 255, 255);
+            };
+            meta.setColor(color);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     private void populateMapContainers(EventMap map, EventType type) {
