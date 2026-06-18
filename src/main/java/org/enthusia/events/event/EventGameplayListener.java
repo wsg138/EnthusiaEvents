@@ -3463,6 +3463,7 @@ public final class EventGameplayListener implements Listener {
             if (amount <= 0) {
                 continue;
             }
+            removeAllMaterial(victim, material);
             Map<Integer, ItemStack> leftovers = killer.getInventory().addItem(new ItemStack(material, amount));
             for (ItemStack leftover : leftovers.values()) {
                 killer.getWorld().dropItemNaturally(killer.getLocation(), leftover);
@@ -3486,6 +3487,19 @@ public final class EventGameplayListener implements Listener {
             }
         }
         return total;
+    }
+
+    private void removeAllMaterial(Player player, Material material) {
+        if (player == null) {
+            return;
+        }
+        ItemStack[] contents = player.getInventory().getStorageContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            if (item != null && item.getType() == material) {
+                player.getInventory().setItem(slot, null);
+            }
+        }
     }
 
     private boolean isProtectedBedWarsExplosionBlock(Block block) {
