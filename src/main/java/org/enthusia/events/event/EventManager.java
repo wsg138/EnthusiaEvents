@@ -1597,7 +1597,7 @@ public final class EventManager {
                 player.getInventory().setChestplate(namedItem(Material.ELYTRA, "Race Elytra"));
                 player.getInventory().setItem(8, namedItem(Material.RECOVERY_COMPASS, "Checkpoint Return"));
                 // One heart only
-                player.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).setBaseValue(2.0D);
+                player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(2.0D);
                 player.setHealth(2.0D);
             }
             case SPLEEF -> {

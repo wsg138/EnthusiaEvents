@@ -128,7 +128,7 @@ public final class EventConfigService {
             case QUAKE -> new EventSettings(Material.GOLDEN_HOE, "Railgun free-for-all. Hit players with quake shots and be the last alive.", 2, 4, 100.0D, 300L);
             case ONE_IN_THE_CHAMBER -> new EventSettings(Material.BOW, "One arrow can end a fight. Earn arrows by eliminating players.", 2, 4, 100.0D, 420L);
             case CAPTURE_THE_FLAG -> new EventSettings(Material.WHITE_BANNER, "Steal the enemy flag and return to your own flag to capture it.", 2, 4, 100.0D, 600L);
-            case CAPTURE_PLAYERS -> new EventSettings(Material.CHAIN, "Capture enemy players, defend your jail, and free your teammates.", 2, 4, 100.0D, 600L);
+            case CAPTURE_PLAYERS -> new EventSettings(Material.IRON_CHAIN, "Capture enemy players, defend your jail, and free your teammates.", 2, 4, 100.0D, 600L);
             case BLOCK_PARTY -> new EventSettings(Material.NOTE_BLOCK, "Stand on the called color before the timer locks each round.", 2, 4, 100.0D, 420L);
             case HOT_POTATO -> new EventSettings(Material.BAKED_POTATO, "Pass the hot potato before it explodes. Last player safe wins.", 2, 4, 100.0D, 420L);
             case SPLEEF -> new EventSettings(Material.DIAMOND_SHOVEL, "Break the floor under other players and be the last one standing.", 2, 4, 100.0D, 420L);

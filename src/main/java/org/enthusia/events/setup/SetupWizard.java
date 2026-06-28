@@ -567,7 +567,7 @@ public final class SetupWizard {
                 player.getInventory().setItem(2, tool(Material.DIAMOND_BLOCK, SetupTool.SPAWN, "team-spawn", "Team Spawn"));
                 player.getInventory().setItem(slot++, tool(Material.LIGHT_BLUE_WOOL, SetupTool.AREA_POS1, "", "Area Pos 1"));
                 player.getInventory().setItem(slot++, tool(Material.BLUE_WOOL, SetupTool.AREA_POS2, "", "Area Pos 2"));
-                player.getInventory().setItem(slot++, tool(Material.CHAIN, SetupTool.AREA, "capture-zone", "Capture Zone"));
+                player.getInventory().setItem(slot++, tool(Material.IRON_CHAIN, SetupTool.AREA, "capture-zone", "Capture Zone"));
                 slot = 9;
                 player.getInventory().setItem(slot++, tool(Material.IRON_BARS, SetupTool.AREA, "jail-zone", "Jail Zone"));
                 player.getInventory().setItem(slot++, tool(Material.LIME_BANNER, SetupTool.AREA, "free-zone", "Free Zone"));
@@ -1157,7 +1157,7 @@ public final class SetupWizard {
     private Material areaMarker(String key) {
         String lower = key.toLowerCase(Locale.ROOT);
         if (lower.startsWith("capture-zone-")) {
-            return Material.CHAIN;
+            return Material.IRON_CHAIN;
         }
         if (lower.startsWith("jail-zone-")) {
             return Material.IRON_BARS;
@@ -1170,7 +1170,7 @@ public final class SetupWizard {
             case "release-wall" -> Material.GLASS;
             case "light-display" -> Material.REDSTONE_LAMP;
             case "finish-line" -> Material.EMERALD_BLOCK;
-            case "capture-zone" -> Material.CHAIN;
+            case "capture-zone" -> Material.IRON_CHAIN;
             case "base-zone", "base-1", "base-2", "base-3", "base-4", "base-5", "base-6", "base-7", "base-8" -> Material.WHITE_WOOL;
             case "jail-zone" -> Material.IRON_BARS;
             case "free-zone" -> Material.LIME_BANNER;

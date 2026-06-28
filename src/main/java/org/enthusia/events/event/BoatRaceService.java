@@ -74,7 +74,7 @@ public final class BoatRaceService implements Listener {
             return;
         }
         cleanupPlayer(player.getUniqueId());
-        Entity entity = spawn.getWorld().spawnEntity(spawn, EntityType.BOAT);
+        Entity entity = spawn.getWorld().spawnEntity(spawn, EntityType.OAK_BOAT);
         if (!(entity instanceof Boat boat)) {
             entity.remove();
             plugin.getLogger().warning("Could not spawn Boat Race boat at " + spawn.getWorld().getName() + " "
@@ -107,11 +107,11 @@ public final class BoatRaceService implements Listener {
             spawned.setSilent(false);
             spawned.setCollidable(false);
             spawned.setRotation(spawn.getYaw(), 0.0F);
-            if (spawned.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED) != null) {
-                spawned.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED).setBaseValue(0.3375D);
+            if (spawned.getAttribute(Attribute.MOVEMENT_SPEED) != null) {
+                spawned.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(0.3375D);
             }
-            if (spawned.getAttribute(Attribute.GENERIC_JUMP_STRENGTH) != null) {
-                spawned.getAttribute(Attribute.GENERIC_JUMP_STRENGTH).setBaseValue(0.75D);
+            if (spawned.getAttribute(Attribute.JUMP_STRENGTH) != null) {
+                spawned.getAttribute(Attribute.JUMP_STRENGTH).setBaseValue(0.75D);
             }
         });
         horse.getInventory().setSaddle(new org.bukkit.inventory.ItemStack(Material.SADDLE));

@@ -272,10 +272,17 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return filter(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("map")) {
-            return filter(args[1], List.of("create", "pos1", "pos2", "region", "spawn", "spectator", "checkpoint", "list", "tp", "export", "exporthub", "exporttrophy", "exportglobal", "exportall"));
+            return filter(args[1], List.of("create", "pos1", "pos2", "region", "spawn", "spectator", "checkpoint", "list", "tp", "status", "transfer", "transferall", "export", "exporthub", "exporttrophy", "exportglobal", "exportall"));
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("map")) {
             return filter(args[2], List.of(EventType.values()).stream().map(Enum::name).toList());
+        }
+        if (args.length == 4 && args[0].equalsIgnoreCase("map")
+                && (args[1].equalsIgnoreCase("transfer") || args[1].equalsIgnoreCase("export"))) {
+            EventType type = parseEventSilently(args[2]);
+            if (type != null) {
+                return filter(args[3], mapSetupService.mapsFor(type).stream().map(EventMap::id).toList());
+            }
         }
         return List.of();
     }
@@ -539,6 +546,43 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 mapCopyService.exportMap(sender, map.get(), worldName);
                 return true;
             }
+            case "status", "worldstatus" -> {
+                mapCopyService.sendWorldStatus(sender);
+                return true;
+            }
+            case "transfer" -> {
+                if (args.length < 4) {
+                    sender.sendMessage("/ee map transfer <EVENT> <mapId> [worldName] [confirm]");
+                    return true;
+                }
+                EventType type = parseEvent(sender, args[2]);
+                if (type == null) {
+                    return true;
+                }
+                Optional<EventMap> map = mapSetupService.find(type, args[3]);
+                if (map.isEmpty()) {
+                    plugin.messages().send(sender, "setup-failed", Map.of("reason", "map not found"));
+                    return true;
+                }
+                String worldName = null;
+                boolean confirmed = false;
+                if (args.length >= 5) {
+                    if (args[4].equalsIgnoreCase("confirm")) {
+                        confirmed = true;
+                    } else {
+                        worldName = args[4];
+                    }
+                }
+                if (args.length >= 6 && args[5].equalsIgnoreCase("confirm")) {
+                    confirmed = true;
+                }
+                mapCopyService.transferMap(sender, map.get(), worldName, confirmed);
+                return true;
+            }
+            case "transferall" -> {
+                mapCopyService.transferAllMaps(sender);
+                return true;
+            }
             case "exportall" -> {
                 mapCopyService.exportAll(sender);
                 return true;
@@ -671,6 +715,14 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return EventType.valueOf(raw.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
             plugin.messages().send(sender, "invalid-event", Map.of("event", raw));
+            return null;
+        }
+    }
+
+    private EventType parseEventSilently(String raw) {
+        try {
+            return EventType.valueOf(raw.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
             return null;
         }
     }
