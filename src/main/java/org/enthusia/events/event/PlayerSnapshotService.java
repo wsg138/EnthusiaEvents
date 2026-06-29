@@ -29,6 +29,7 @@ import java.util.logging.Level;
 public final class PlayerSnapshotService {
 
     private static final long SNAPSHOT_TTL_MILLIS = Duration.ofDays(7).toMillis();
+    private static final int[] RESTORE_RETRY_DELAYS_TICKS = {20, 40, 80, 120};
 
     private final EnthusiaEventsPlugin plugin;
     private final File file;
@@ -68,22 +69,35 @@ public final class PlayerSnapshotService {
         }
 
         if (snapshot.location() != null) {
-            TeleportService.teleport(plugin, player, snapshot.location(), "restore event snapshot")
-                    .thenAccept(success -> plugin.getServer().getScheduler().runTask(plugin, () -> {
-                        if (success) {
-                            applySnapshot(player, snapshot);
-                            markRestored(player.getUniqueId(), consume);
-                        } else {
-                            plugin.getLogger().warning("Could not restore event snapshot for " + player.getName()
-                                    + ". Snapshot was kept for a later retry.");
-                            plugin.messages().send(player, "event-restore-failed");
-                        }
-                    }));
+            restoreWithRetry(player, snapshot, consume, 0);
         } else {
             applySnapshot(player, snapshot);
             markRestored(player.getUniqueId(), consume);
         }
         return true;
+    }
+
+    private void restoreWithRetry(Player player, PlayerSnapshot snapshot, boolean consume, int attempt) {
+        if (!player.isOnline()) {
+            return;
+        }
+        TeleportService.teleport(plugin, player, snapshot.location(), "restore event snapshot")
+                .thenAccept(success -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (success) {
+                        applySnapshot(player, snapshot);
+                        markRestored(player.getUniqueId(), consume);
+                        return;
+                    }
+                    if (attempt < RESTORE_RETRY_DELAYS_TICKS.length) {
+                        int delay = RESTORE_RETRY_DELAYS_TICKS[attempt];
+                        plugin.getServer().getScheduler().runTaskLater(plugin,
+                                () -> restoreWithRetry(player, snapshot, consume, attempt + 1), delay);
+                        return;
+                    }
+                    plugin.getLogger().warning("Could not restore event snapshot for " + player.getName()
+                            + ". Snapshot was kept for a later retry.");
+                    plugin.messages().send(player, "event-restore-failed");
+                }));
     }
 
     public int retryPendingOnlineRestores() {

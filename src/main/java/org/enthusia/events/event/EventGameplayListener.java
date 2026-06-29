@@ -136,6 +136,7 @@ public final class EventGameplayListener implements Listener {
     private final Map<String, Integer> capturePlayerProgress = new HashMap<>();
     private final Map<UUID, Integer> quakeScores = new HashMap<>();
     private final Map<UUID, BukkitTask> quakeRespawns = new HashMap<>();
+    private final Map<UUID, Integer> oneInTheChamberScores = new HashMap<>();
     private final Map<UUID, BukkitTask> ctfRespawns = new HashMap<>();
     private final Map<UUID, CtfInventoryLayout> ctfInventoryLayouts = new HashMap<>();
     private final List<UUID> bedWarsShopEntities = new ArrayList<>();
@@ -343,7 +344,7 @@ public final class EventGameplayListener implements Listener {
             return;
         }
         if (map != null && map.region() != null && map.region().contains(event.getBlock().getLocation())
-                && (type == EventType.SPLEEF || type == EventType.SPLEEG)
+                && (type == EventType.SPLEEF || type == EventType.SPLEGG)
                 && canBreakSpleefBlock(map, event.getBlock())) {
             return;
         }
@@ -639,7 +640,7 @@ public final class EventGameplayListener implements Listener {
             }
             return;
         }
-        if (type == EventType.SPLEEG && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
+        if (type == EventType.SPLEGG && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
             return;
         }
         if (type == EventType.QUAKE && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
@@ -779,6 +780,11 @@ public final class EventGameplayListener implements Listener {
             event.setDamage(1000.0D);
             return;
         }
+        if (type == EventType.ONE_IN_THE_CHAMBER && damager != null && event.getEntity() instanceof Player
+                && damager.getInventory().getItemInMainHand().getType().name().endsWith("_AXE")) {
+            event.setDamage(1000.0D);
+            return;
+        }
         // BedWars: prevent owner/allies from damaging their own Iron Golems
         if (type == EventType.BEDWARS && event.getEntity() instanceof IronGolem golem && damager != null) {
             String golemTeam = golem.getScoreboardTags().stream()
@@ -834,8 +840,14 @@ public final class EventGameplayListener implements Listener {
         event.getDrops().clear();
         event.setDroppedExp(0);
         Player killer = player.getKiller();
-        if (session.definition().type() == EventType.ONE_IN_THE_CHAMBER && killer != null && session.participants().contains(killer.getUniqueId())) {
-            killer.getInventory().addItem(new ItemStack(Material.ARROW, 1));
+        if (session.definition().type() == EventType.ONE_IN_THE_CHAMBER) {
+            if (killer != null && session.participants().contains(killer.getUniqueId())) {
+                addOneInTheChamberScore(killer, 1);
+                refillOneInTheChamberArrow(killer);
+                eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + killer.getName()
+                        + " eliminated " + player.getName() + ".");
+            }
+            return;
         }
         if (session.definition().type() == EventType.KNOCKBACK_FFA) {
             rewardKnockbackKill(killer);
@@ -918,6 +930,26 @@ public final class EventGameplayListener implements Listener {
             });
             return;
         }
+        if (session.definition().type() == EventType.ONE_IN_THE_CHAMBER && session.participants().contains(event.getPlayer().getUniqueId())) {
+            Location spawn = randomSpawn(map);
+            if (spawn != null) {
+                event.setRespawnLocation(spawn);
+            }
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Player player = event.getPlayer();
+                player.setGameMode(GameMode.SURVIVAL);
+                player.setHealth(player.getMaxHealth());
+                player.setFoodLevel(20);
+                player.setSaturation(10.0F);
+                player.setFireTicks(0);
+                player.setFallDistance(0.0F);
+                player.getInventory().clear();
+                player.getInventory().addItem(namedItem(Material.BOW, "One Shot Bow"));
+                player.getInventory().addItem(namedItem(Material.IRON_AXE, "One Shot Axe"));
+                player.getInventory().addItem(new ItemStack(Material.ARROW, 1));
+            });
+            return;
+        }
         if (!session.spectators().contains(event.getPlayer().getUniqueId())) {
             return;
         }
@@ -950,7 +982,7 @@ public final class EventGameplayListener implements Listener {
             }
             return;
         }
-        if (session.definition().type() != EventType.SPLEEG) {
+        if (session.definition().type() != EventType.SPLEGG) {
             return;
         }
         if (!(event.getEntity() instanceof Snowball)) {
@@ -1032,6 +1064,7 @@ public final class EventGameplayListener implements Listener {
         bedWarsGeneratorTicks = 0;
         quakeShotCooldowns.clear();
         quakeLaunchCooldowns.clear();
+        oneInTheChamberScores.clear();
         trackedSession = null;
     }
 
@@ -2871,6 +2904,9 @@ public final class EventGameplayListener implements Listener {
         if (breakableArea != null && !breakableArea.contains(block.getLocation())) {
             return false;
         }
+        if (map.eventType() == EventType.SPLEGG) {
+            return true;
+        }
         Location materialSource = map.points().get("breakable-block");
         return materialSource == null
                 || materialSource.getWorld() == null
@@ -2907,7 +2943,7 @@ public final class EventGameplayListener implements Listener {
 
     private boolean usesFallElimination(EventType type) {
         return type == EventType.SPLEEF
-                || type == EventType.SPLEEG
+                || type == EventType.SPLEGG
                 || type == EventType.SUMO_1V1
                 || type == EventType.SUMO_2V2
                 || type == EventType.SUMO_FFA
@@ -2989,6 +3025,17 @@ public final class EventGameplayListener implements Listener {
     private void addQuakeScore(Player player, int delta) {
         int score = quakeScores.merge(player.getUniqueId(), delta, Integer::sum);
         eventManager.setRuntimeScoreboardValue("quake-score-" + player.getUniqueId(), String.valueOf(score));
+    }
+
+    private void addOneInTheChamberScore(Player player, int delta) {
+        int score = oneInTheChamberScores.merge(player.getUniqueId(), delta, Integer::sum);
+        eventManager.setRuntimeScoreboardValue("oitc-score-" + player.getUniqueId(), String.valueOf(score));
+    }
+
+    private void refillOneInTheChamberArrow(Player player) {
+        if (!player.getInventory().contains(Material.ARROW)) {
+            player.getInventory().addItem(new ItemStack(Material.ARROW, 1));
+        }
     }
 
     private void scheduleQuakeRespawn(EventSession session, Player player) {

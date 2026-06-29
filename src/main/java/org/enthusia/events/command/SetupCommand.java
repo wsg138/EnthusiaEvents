@@ -84,7 +84,7 @@ public final class SetupCommand implements CommandExecutor, TabCompleter {
         }
         EventType type;
         try {
-            type = EventType.valueOf(args[0].toUpperCase(Locale.ROOT));
+            type = EventType.parse(args[0]);
         } catch (IllegalArgumentException ex) {
             plugin.messages().send(sender, "invalid-event", Map.of("event", args[0]));
             return true;
@@ -114,7 +114,7 @@ public final class SetupCommand implements CommandExecutor, TabCompleter {
             }
             EventType type;
             try {
-                type = EventType.valueOf(args[0].toUpperCase(Locale.ROOT));
+                type = EventType.parse(args[0]);
             } catch (IllegalArgumentException ex) {
                 return List.of();
             }

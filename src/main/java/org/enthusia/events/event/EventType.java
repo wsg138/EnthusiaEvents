@@ -17,10 +17,18 @@ public enum EventType {
     BLOCK_PARTY,
     HOT_POTATO,
     SPLEEF,
-    SPLEEG,
+    SPLEGG,
     RED_LIGHT_GREEN_LIGHT,
     BOAT_RACE,
     HORSE_RACE,
     ELYTRA_RACE,
-    PARKOUR
+    PARKOUR;
+
+    public static EventType parse(String raw) {
+        String normalized = raw == null ? "" : raw.toUpperCase(java.util.Locale.ROOT);
+        if ("SPLEEG".equals(normalized)) {
+            normalized = "SPLEGG";
+        }
+        return EventType.valueOf(normalized);
+    }
 }

@@ -252,7 +252,7 @@ public final class EventRestrictionsListener implements Listener {
             return type != EventType.SKYWARS
                     && type != EventType.BEDWARS
                     && type != EventType.SPLEEF
-                    && type != EventType.SPLEEG;
+                    && type != EventType.SPLEGG;
         }
         return mapSetupService.isInsideAnyConfiguredRegion(location);
     }

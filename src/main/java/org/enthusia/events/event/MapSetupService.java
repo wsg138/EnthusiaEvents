@@ -328,7 +328,7 @@ public final class MapSetupService {
             return;
         }
         for (String eventKey : events.getKeys(false)) {
-            EventType type = EventType.valueOf(eventKey);
+            EventType type = EventType.parse(eventKey);
             ConfigurationSection eventSection = events.getConfigurationSection(eventKey);
             if (eventSection == null) {
                 continue;

@@ -90,7 +90,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 }
                 if (!started) {
                     String reason = args.length >= 2
-                            ? eventManager.forcedStartFailureReason(EventType.valueOf(args[1].toUpperCase(Locale.ROOT)))
+                            ? eventManager.forcedStartFailureReason(EventType.parse(args[1]))
                             : eventManager.manualStartFailureReason(sender instanceof Player player ? player : null, null, false);
                     plugin.messages().send(sender, "force-start-failed", Map.of("reason", reason));
                 }
@@ -713,7 +713,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
 
     private EventType parseEvent(CommandSender sender, String raw) {
         try {
-            return EventType.valueOf(raw.toUpperCase(Locale.ROOT));
+            return EventType.parse(raw);
         } catch (IllegalArgumentException ex) {
             plugin.messages().send(sender, "invalid-event", Map.of("event", raw));
             return null;
@@ -722,7 +722,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
 
     private EventType parseEventSilently(String raw) {
         try {
-            return EventType.valueOf(raw.toUpperCase(Locale.ROOT));
+            return EventType.parse(raw);
         } catch (IllegalArgumentException ex) {
             return null;
         }

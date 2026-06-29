@@ -32,7 +32,7 @@ public final class EventRegistry {
         boolean allowPearl = defaults != null && defaults.getBoolean("allow-ender-pearl", false);
         boolean usesKits = defaults != null && defaults.getBoolean("uses-kits", false);
         for (String raw : plugin.getConfig().getStringList("events.enabled")) {
-            EventType type = EventType.valueOf(raw.toUpperCase(Locale.ROOT));
+            EventType type = EventType.parse(raw);
             definitions.put(type, new EventDefinition(
                     type,
                     displayName(type),
@@ -70,9 +70,6 @@ public final class EventRegistry {
     }
 
     private String displayName(EventType type) {
-        if (type == EventType.SPLEEG) {
-            return "Splegg";
-        }
         String[] parts = type.name().toLowerCase(Locale.ROOT).split("_");
         StringBuilder builder = new StringBuilder();
         for (String part : parts) {

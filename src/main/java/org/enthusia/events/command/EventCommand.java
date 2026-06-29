@@ -87,7 +87,7 @@ public final class EventCommand implements CommandExecutor, TabCompleter {
                     return true;
                 } else {
                     try {
-                        selected = plugin.eventRegistry().definition(EventType.valueOf(args[1].toUpperCase(Locale.ROOT)));
+                        selected = plugin.eventRegistry().definition(EventType.parse(args[1]));
                     } catch (IllegalArgumentException ignored) {
                     }
                     if (selected == null) {

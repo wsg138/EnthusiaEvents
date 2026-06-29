@@ -116,7 +116,7 @@ public final class EventStatsService {
                 continue;
             }
             for (String eventKey : perEvent.getKeys(false)) {
-                EventType type = EventType.valueOf(eventKey);
+                EventType type = EventType.parse(eventKey);
                 ConfigurationSection eventSection = perEvent.getConfigurationSection(eventKey);
                 if (eventSection == null) {
                     continue;

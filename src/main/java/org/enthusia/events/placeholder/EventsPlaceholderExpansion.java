@@ -73,7 +73,7 @@ public final class EventsPlaceholderExpansion extends PlaceholderExpansion {
         String eventName = params.substring(0, params.length() - suffix.length() - 1).toUpperCase(Locale.ROOT);
         EventType type;
         try {
-            type = EventType.valueOf(eventName);
+            type = EventType.parse(eventName);
         } catch (IllegalArgumentException ex) {
             return "";
         }

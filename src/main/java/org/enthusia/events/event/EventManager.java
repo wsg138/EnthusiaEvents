@@ -495,10 +495,15 @@ public final class EventManager {
 
     public void handleJoin(Player player) {
         if (snapshotService.hasUnrestoredSnapshot(player.getUniqueId()) && !isEventPlayer(player.getUniqueId())) {
-            allowTeleport(player.getUniqueId());
-            if (snapshotService.restore(player, false)) {
-                plugin.messages().send(player, "event-restored-on-join");
-            }
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!player.isOnline() || !snapshotService.hasUnrestoredSnapshot(player.getUniqueId()) || isEventPlayer(player.getUniqueId())) {
+                    return;
+                }
+                allowTeleport(player.getUniqueId());
+                if (snapshotService.restore(player, false)) {
+                    plugin.messages().send(player, "event-restored-on-join");
+                }
+            }, 20L);
         }
     }
 
@@ -1350,6 +1355,8 @@ public final class EventManager {
                 if (session != null && session.phase() == EventPhase.ACTIVE) {
                     if (session.definition().type() == EventType.QUAKE) {
                         endActiveEvent(rankedByRuntimeScore("quake-score-"));
+                    } else if (session.definition().type() == EventType.ONE_IN_THE_CHAMBER) {
+                        endActiveEvent(rankedByRuntimeScore("oitc-score-"));
                     } else if (session.definition().type() == EventType.CAPTURE_THE_FLAG) {
                         endActiveEvent(ctfTimerWinners(session));
                     } else if (session.definition().type() == EventType.CAPTURE_PLAYERS) {
@@ -1625,7 +1632,7 @@ public final class EventManager {
                 player.setGameMode(GameMode.SURVIVAL);
                 player.getInventory().addItem(namedItem(Material.DIAMOND_SHOVEL, "Spleef Shovel"));
             }
-            case SPLEEG -> {
+            case SPLEGG -> {
                 player.setGameMode(GameMode.SURVIVAL);
                 player.getInventory().addItem(namedItem(Material.DIAMOND_SHOVEL, "Splegg Shovel"));
                 player.getInventory().addItem(namedItem(Material.SNOWBALL, "Splegg Snowballs", 64));
@@ -1661,7 +1668,7 @@ public final class EventManager {
             case ONE_IN_THE_CHAMBER -> {
                 player.setGameMode(GameMode.SURVIVAL);
                 player.getInventory().addItem(namedItem(Material.BOW, "One Shot Bow"));
-                player.getInventory().addItem(namedItem(Material.WOODEN_SWORD, "Backup Sword"));
+                player.getInventory().addItem(namedItem(Material.IRON_AXE, "One Shot Axe"));
                 player.getInventory().addItem(new ItemStack(Material.ARROW, 1));
             }
             case SKYWARS -> {
@@ -1868,7 +1875,7 @@ public final class EventManager {
                 || type == EventType.BLOCK_PARTY
                 || type == EventType.HOT_POTATO
                 || type == EventType.SPLEEF
-                || type == EventType.SPLEEG;
+                || type == EventType.SPLEGG;
     }
 
     private boolean canMoveDuringPreStart(EventType type) {
@@ -1878,9 +1885,10 @@ public final class EventManager {
                 || type == EventType.BOAT_RACE
                 || type == EventType.HORSE_RACE
                 || type == EventType.PARKOUR
+                || type == EventType.ONE_IN_THE_CHAMBER
                 || type == EventType.BLOCK_PARTY
                 || type == EventType.SPLEEF
-                || type == EventType.SPLEEG;
+                || type == EventType.SPLEGG;
     }
 
     private void cleanupBoatRacePlayer(UUID uuid) {

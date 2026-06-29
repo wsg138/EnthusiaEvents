@@ -61,7 +61,7 @@ public final class LootTableService {
         for (String eventKey : root.getKeys(false)) {
             EventType type;
             try {
-                type = EventType.valueOf(eventKey.toUpperCase(Locale.ROOT));
+                type = EventType.parse(eventKey);
             } catch (IllegalArgumentException ex) {
                 plugin.getLogger().warning("Ignoring unknown loot event type: " + eventKey);
                 continue;

@@ -120,7 +120,7 @@ public final class ArenaResetService implements Listener {
 
     private boolean isResetTracked(EventType type) {
         return type == EventType.SPLEEF
-                || type == EventType.SPLEEG
+                || type == EventType.SPLEGG
                 || type == EventType.BEDWARS
                 || type == EventType.SKYWARS
                 || type == EventType.BLOCK_PARTY;
