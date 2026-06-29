@@ -1636,8 +1636,6 @@ public final class EventManager {
             case SPLEGG -> {
                 player.setGameMode(GameMode.SURVIVAL);
                 player.getInventory().addItem(namedItem(Material.DIAMOND_SHOVEL, "Splegg Shovel"));
-                player.getInventory().addItem(namedItem(Material.SNOWBALL, "Splegg Snowballs", 64));
-                player.getInventory().addItem(new ItemStack(Material.SNOWBALL, 64));
             }
             case SUMO_1V1, SUMO_2V2, SUMO_FFA -> {
                 player.setGameMode(GameMode.ADVENTURE);

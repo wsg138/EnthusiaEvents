@@ -138,6 +138,7 @@ public final class EventGameplayListener implements Listener {
     private final Map<UUID, BukkitTask> quakeRespawns = new HashMap<>();
     private final Map<UUID, Integer> oneInTheChamberScores = new HashMap<>();
     private final Map<UUID, EventInventoryLayout> eventInventoryLayouts = new HashMap<>();
+    private final Map<UUID, Integer> spleggLastShotTicks = new HashMap<>();
     private final Map<UUID, BukkitTask> ctfRespawns = new HashMap<>();
     private final Map<UUID, CtfInventoryLayout> ctfInventoryLayouts = new HashMap<>();
     private final List<UUID> bedWarsShopEntities = new ArrayList<>();
@@ -278,7 +279,11 @@ public final class EventGameplayListener implements Listener {
             return;
         }
 
-        double eliminationY = type == EventType.BLOCK_PARTY ? 65.0D : map.region().minY() - 1.0D;
+        double eliminationY = switch (type) {
+            case BLOCK_PARTY -> 65.0D;
+            case SPLEGG -> -5.0D;
+            default -> map.region().minY() - 1.0D;
+        };
         if (usesFallElimination(type) && event.getTo() != null && event.getTo().getY() <= eliminationY) {
             if (type == EventType.BEDWARS) {
                 String team = session.teams().get(event.getPlayer().getUniqueId());
@@ -350,7 +355,7 @@ public final class EventGameplayListener implements Listener {
             return;
         }
         if (map != null && map.region() != null && map.region().contains(event.getBlock().getLocation())
-                && (type == EventType.SPLEEF || type == EventType.SPLEGG)
+                && type == EventType.SPLEEF
                 && canBreakSpleefBlock(map, event.getBlock())) {
             return;
         }
@@ -646,7 +651,9 @@ public final class EventGameplayListener implements Listener {
             }
             return;
         }
-        if (type == EventType.SPLEGG && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
+        if (type == EventType.SPLEGG && isSpleggLaunchAction(event)) {
+            event.setCancelled(true);
+            launchSpleggSnowball(event.getPlayer());
             return;
         }
         if (type == EventType.ONE_IN_THE_CHAMBER
@@ -1031,6 +1038,7 @@ public final class EventGameplayListener implements Listener {
         ctfCaptureProgress.clear();
         quakeScores.clear();
         eventInventoryLayouts.clear();
+        spleggLastShotTicks.clear();
         quakeRespawns.values().forEach(BukkitTask::cancel);
         quakeRespawns.clear();
         ctfRespawns.values().forEach(BukkitTask::cancel);
@@ -1932,6 +1940,30 @@ public final class EventGameplayListener implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private boolean isSpleggLaunchAction(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) {
+            return false;
+        }
+        Action action = event.getAction();
+        if (action != Action.LEFT_CLICK_AIR && action != Action.LEFT_CLICK_BLOCK
+                && action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) {
+            return false;
+        }
+        ItemStack item = event.getItem();
+        return item != null && item.getType() == Material.DIAMOND_SHOVEL;
+    }
+
+    private void launchSpleggSnowball(Player player) {
+        int tick = player.getTicksLived();
+        Integer lastTick = spleggLastShotTicks.put(player.getUniqueId(), tick);
+        if (lastTick != null && lastTick == tick) {
+            return;
+        }
+        Snowball snowball = player.launchProjectile(Snowball.class);
+        snowball.setVelocity(player.getEyeLocation().getDirection().normalize().multiply(1.65D));
+        player.playSound(player.getLocation(), Sound.ENTITY_SNOWBALL_THROW, 0.75F, 1.2F);
     }
 
     private void rememberEventInventoryLayout(Player player) {
