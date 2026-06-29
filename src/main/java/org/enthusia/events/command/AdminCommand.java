@@ -526,12 +526,16 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
             case "export" -> {
-                if (args.length < 4) {
-                    sender.sendMessage("/ee map export <EVENT> <mapId> [worldName]");
+                if (args.length < 3) {
+                    sender.sendMessage("/ee map export <EVENT> [mapId] [worldName]");
                     return true;
                 }
                 EventType type = parseEvent(sender, args[2]);
                 if (type == null) {
+                    return true;
+                }
+                if (args.length == 3) {
+                    mapCopyService.exportEventMaps(sender, type);
                     return true;
                 }
                 Optional<EventMap> map = mapSetupService.find(type, args[3]);

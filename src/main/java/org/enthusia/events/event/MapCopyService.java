@@ -47,6 +47,22 @@ public final class MapCopyService {
         return startQueue(sender, new ArrayDeque<>(List.of(mapRequest(map, worldName, true))));
     }
 
+    public boolean exportEventMaps(CommandSender sender, EventType eventType) {
+        if (running) {
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, ANOTHER_EXPORT_RUNNING));
+            return false;
+        }
+        List<EventMap> maps = mapSetupService.mapsFor(eventType);
+        if (maps.isEmpty()) {
+            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, "no maps found for " + eventType.name()));
+            return false;
+        }
+        Queue<CopyRequest> requests = maps.stream()
+                .map(map -> mapRequest(map, defaultWorldName(map), true))
+                .collect(java.util.stream.Collectors.toCollection(ArrayDeque::new));
+        return startQueue(sender, requests);
+    }
+
     public void sendWorldStatus(CommandSender sender, int page) {
         List<EventMap> maps = mapSetupService.allMaps();
         if (maps.isEmpty()) {
