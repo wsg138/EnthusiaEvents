@@ -137,6 +137,7 @@ public final class EventGameplayListener implements Listener {
     private final Map<UUID, Integer> quakeScores = new HashMap<>();
     private final Map<UUID, BukkitTask> quakeRespawns = new HashMap<>();
     private final Map<UUID, Integer> oneInTheChamberScores = new HashMap<>();
+    private final Map<UUID, EventInventoryLayout> eventInventoryLayouts = new HashMap<>();
     private final Map<UUID, BukkitTask> ctfRespawns = new HashMap<>();
     private final Map<UUID, CtfInventoryLayout> ctfInventoryLayouts = new HashMap<>();
     private final List<UUID> bedWarsShopEntities = new ArrayList<>();
@@ -196,6 +197,10 @@ public final class EventGameplayListener implements Listener {
     private record CapturePlayersCarryEntry(UUID prisonerId, CapturePlayersCarryMode mode, String jailTeam) {
     }
 
+    private record EventInventoryLayout(Map<Material, Integer> preferredSlots) {
+        private static final int OFFHAND_SLOT = -1;
+    }
+
     public EventGameplayListener(EnthusiaEventsPlugin plugin, EventManager eventManager) {
         this.plugin = plugin;
         this.eventManager = eventManager;
@@ -227,6 +232,7 @@ public final class EventGameplayListener implements Listener {
         ctfRespawns.values().forEach(BukkitTask::cancel);
         ctfRespawns.clear();
         removeBedWarsShops();
+        eventInventoryLayouts.clear();
         ctfInventoryLayouts.clear();
         bedWarsPlacedBlocks.clear();
         restoreTimedBedWarsBeds();
@@ -643,6 +649,20 @@ public final class EventGameplayListener implements Listener {
         if (type == EventType.SPLEGG && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
             return;
         }
+        if (type == EventType.ONE_IN_THE_CHAMBER
+                && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)
+                && event.getItem() != null
+                && event.getItem().getType() == Material.BOW) {
+            rememberEventInventoryLayout(event.getPlayer());
+            return;
+        }
+        if (type == EventType.KNOCKBACK_FFA
+                && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)
+                && event.getItem() != null
+                && event.getItem().getType() == Material.ENDER_PEARL) {
+            rememberEventInventoryLayout(event.getPlayer());
+            return;
+        }
         if (type == EventType.QUAKE && (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK)) {
             event.setCancelled(true);
             if (event.getPlayer().getInventory().getItemInMainHand().getType() != Material.GOLDEN_HOE) {
@@ -841,6 +861,7 @@ public final class EventGameplayListener implements Listener {
         event.setDroppedExp(0);
         Player killer = player.getKiller();
         if (session.definition().type() == EventType.ONE_IN_THE_CHAMBER) {
+            rememberEventInventoryLayout(player);
             if (killer != null && session.participants().contains(killer.getUniqueId())) {
                 addOneInTheChamberScore(killer, 1);
                 refillOneInTheChamberArrow(killer);
@@ -943,10 +964,7 @@ public final class EventGameplayListener implements Listener {
                 player.setSaturation(10.0F);
                 player.setFireTicks(0);
                 player.setFallDistance(0.0F);
-                player.getInventory().clear();
-                player.getInventory().addItem(namedItem(Material.BOW, "One Shot Bow"));
-                player.getInventory().addItem(namedItem(Material.IRON_AXE, "One Shot Axe"));
-                player.getInventory().addItem(new ItemStack(Material.ARROW, 1));
+                applyOneInTheChamberLoadout(player);
             });
             return;
         }
@@ -1012,6 +1030,7 @@ public final class EventGameplayListener implements Listener {
         ctfDroppedFlags.clear();
         ctfCaptureProgress.clear();
         quakeScores.clear();
+        eventInventoryLayouts.clear();
         quakeRespawns.values().forEach(BukkitTask::cancel);
         quakeRespawns.clear();
         ctfRespawns.values().forEach(BukkitTask::cancel);
@@ -1913,6 +1932,86 @@ public final class EventGameplayListener implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private void rememberEventInventoryLayout(Player player) {
+        Map<Material, Integer> currentSlots = new HashMap<>();
+        ItemStack[] contents = player.getInventory().getStorageContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            if (item != null && !item.getType().isAir()) {
+                currentSlots.putIfAbsent(item.getType(), slot);
+            }
+        }
+        ItemStack offhand = player.getInventory().getItemInOffHand();
+        if (offhand != null && !offhand.getType().isAir()) {
+            currentSlots.put(offhand.getType(), EventInventoryLayout.OFFHAND_SLOT);
+        }
+        EventInventoryLayout previous = eventInventoryLayouts.get(player.getUniqueId());
+        Map<Material, Integer> merged = previous == null ? new HashMap<>() : new HashMap<>(previous.preferredSlots());
+        merged.putAll(currentSlots);
+        eventInventoryLayouts.put(player.getUniqueId(), new EventInventoryLayout(merged));
+    }
+
+    private void placeEventItem(Player player, ItemStack item) {
+        EventInventoryLayout layout = eventInventoryLayouts.get(player.getUniqueId());
+        Integer preferred = layout == null ? null : layout.preferredSlots().get(item.getType());
+        if (preferred != null && preferred == EventInventoryLayout.OFFHAND_SLOT && placeInOffhand(player, item)) {
+            return;
+        }
+        if (preferred != null && preferred >= 0 && preferred < player.getInventory().getStorageContents().length
+                && placeInSlot(player, preferred, item)) {
+            return;
+        }
+        player.getInventory().addItem(item);
+    }
+
+    private boolean placeInOffhand(Player player, ItemStack item) {
+        ItemStack current = player.getInventory().getItemInOffHand();
+        if (current == null || current.getType().isAir()) {
+            player.getInventory().setItemInOffHand(item);
+            return true;
+        }
+        ItemStack leftover = mergeStack(current, item);
+        player.getInventory().setItemInOffHand(current);
+        if (leftover == null) {
+            return true;
+        }
+        player.getInventory().addItem(leftover);
+        return true;
+    }
+
+    private boolean placeInSlot(Player player, int slot, ItemStack item) {
+        ItemStack current = player.getInventory().getItem(slot);
+        if (current == null || current.getType().isAir()) {
+            player.getInventory().setItem(slot, item);
+            return true;
+        }
+        ItemStack leftover = mergeStack(current, item);
+        player.getInventory().setItem(slot, current);
+        if (leftover == null) {
+            return true;
+        }
+        player.getInventory().addItem(leftover);
+        return true;
+    }
+
+    private ItemStack mergeStack(ItemStack target, ItemStack incoming) {
+        if (target.getType() != incoming.getType()) {
+            return incoming;
+        }
+        int space = target.getMaxStackSize() - target.getAmount();
+        if (space <= 0) {
+            return incoming;
+        }
+        int moved = Math.min(space, incoming.getAmount());
+        target.setAmount(target.getAmount() + moved);
+        if (moved >= incoming.getAmount()) {
+            return null;
+        }
+        ItemStack leftover = incoming.clone();
+        leftover.setAmount(incoming.getAmount() - moved);
+        return leftover;
     }
 
     private void messageTeam(EventSession session, String team, String message) {
@@ -3002,6 +3101,7 @@ public final class EventGameplayListener implements Listener {
             eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + shooter.getName()
                     + " hit " + target.getName() + ".");
             target.getWorld().playSound(target.getLocation(), Sound.ENTITY_PLAYER_HURT, 1.0F, 0.7F);
+            rememberEventInventoryLayout(target);
             scheduleQuakeRespawn(session, target);
         }
     }
@@ -3034,8 +3134,18 @@ public final class EventGameplayListener implements Listener {
 
     private void refillOneInTheChamberArrow(Player player) {
         if (!player.getInventory().contains(Material.ARROW)) {
-            player.getInventory().addItem(new ItemStack(Material.ARROW, 1));
+            placeEventItem(player, new ItemStack(Material.ARROW, 1));
         }
+    }
+
+    private void applyOneInTheChamberLoadout(Player player) {
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(null);
+        player.getInventory().setItemInOffHand(null);
+        placeEventItem(player, namedItem(Material.BOW, "One Shot Bow"));
+        placeEventItem(player, namedItem(Material.IRON_AXE, "One Shot Axe"));
+        placeEventItem(player, new ItemStack(Material.ARROW, 1));
+        player.updateInventory();
     }
 
     private void scheduleQuakeRespawn(EventSession session, Player player) {
@@ -3079,7 +3189,7 @@ public final class EventGameplayListener implements Listener {
             player.setFallDistance(0.0F);
             player.setVelocity(new Vector(0, 0, 0));
             if (!player.getInventory().contains(Material.GOLDEN_HOE)) {
-                player.getInventory().addItem(new ItemStack(Material.GOLDEN_HOE));
+                placeEventItem(player, namedItem(Material.GOLDEN_HOE, "Quake Railgun"));
             }
             if (spawn != null) {
                 TeleportService.teleport(plugin, player, spawn, "quake respawn");
@@ -3526,7 +3636,8 @@ public final class EventGameplayListener implements Listener {
                 || !session.participants().contains(killer.getUniqueId())) {
             return;
         }
-        killer.getInventory().addItem(namedItem(Material.ENDER_PEARL, "Recovery Pearl"));
+        rememberEventInventoryLayout(killer);
+        placeEventItem(killer, namedItem(Material.ENDER_PEARL, "Recovery Pearl"));
         killer.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Kill reward: +1 ender pearl.");
     }
 
