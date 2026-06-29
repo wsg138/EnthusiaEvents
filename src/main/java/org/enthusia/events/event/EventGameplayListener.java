@@ -1021,6 +1021,7 @@ public final class EventGameplayListener implements Listener {
         EventMap map = session.selectedMap();
         if (block != null && map != null && map.region() != null && map.region().contains(block.getLocation())
                 && canBreakSpleefBlock(map, block)) {
+            eventManager.recordArenaResetBlock(block);
             block.setType(Material.AIR, false);
         }
     }

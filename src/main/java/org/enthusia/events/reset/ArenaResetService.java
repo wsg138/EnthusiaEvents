@@ -56,6 +56,10 @@ public final class ArenaResetService implements Listener {
         originalStates.clear();
     }
 
+    public void recordBlock(Block block) {
+        record(block);
+    }
+
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
         record(event.getBlock());

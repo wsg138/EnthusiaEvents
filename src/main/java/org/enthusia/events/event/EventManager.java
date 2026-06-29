@@ -12,6 +12,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
+import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.command.CommandSender;
@@ -215,6 +216,12 @@ public final class EventManager {
     public void kitVotingItemsHandler(Consumer<Player> kitVotingItemsHandler) {
         this.kitVotingItemsHandler = kitVotingItemsHandler == null ? player -> {
         } : kitVotingItemsHandler;
+    }
+
+    public void recordArenaResetBlock(Block block) {
+        if (arenaResetService != null) {
+            arenaResetService.recordBlock(block);
+        }
     }
 
     public void services(EventScoreboardService scoreboardService, ArenaResetService arenaResetService, PodiumService podiumService,
