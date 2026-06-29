@@ -70,6 +70,9 @@ public final class EventRegistry {
     }
 
     private String displayName(EventType type) {
+        if (type == EventType.SPLEEG) {
+            return "Splegg";
+        }
         String[] parts = type.name().toLowerCase(Locale.ROOT).split("_");
         StringBuilder builder = new StringBuilder();
         for (String part : parts) {

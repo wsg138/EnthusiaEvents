@@ -355,11 +355,12 @@ public final class EventScoreboardService {
                     "&7Team: &f{team}",
                     "&7Time left: &e{timeleft}",
                     "",
-                    "&7Round: &f{capture_round}",
-                    "&cRed Wins: &f{capture_red_wins}",
-                    "&9Blue Wins: &f{capture_blue_wins}",
-                    "&cRed Jailed: &f{capture_red_jailed}",
-                    "&9Blue Jailed: &f{capture_blue_jailed}",
+                    "&eRound &f{capture_round}",
+                    "&7Round Wins",
+                    "&cRed: &f{capture_red_wins}  &9Blue: &f{capture_blue_wins}",
+                    "",
+                    "&7Players Jailed",
+                    "&4Red: &f{capture_red_jailed}  &1Blue: &f{capture_blue_jailed}",
                     "",
                     "&8{map}"
             );

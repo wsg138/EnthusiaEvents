@@ -1219,9 +1219,28 @@ public final class EventManager {
         cancelPreStartTask();
         EventDefinition queued = queue.poll();
         if (queued != null) {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> startManualVote(Bukkit.getConsoleSender(), queued, false),
+            Bukkit.getScheduler().runTaskLater(plugin, () -> startQueuedEvent(queued),
                     plugin.getConfig().getLong("schedule.queue-delay-seconds", 30L) * 20L);
         }
+    }
+
+    private void startQueuedEvent(EventDefinition definition) {
+        if (session != null) {
+            queue.add(definition);
+            return;
+        }
+        if (definition == null || mapSetupService.usableMapsFor(definition.type()).isEmpty()) {
+            return;
+        }
+        runtimeScoreboardValues.clear();
+        session = new EventSession(definition, EventPhase.JOIN);
+        session.startedBy("Queue");
+        session.waitingHub(configuredLocation("locations.waiting-hub"));
+        session.trophyRoom(configuredLocation("locations.trophy-room"));
+        selectMapForSession();
+        Bukkit.broadcastMessage(plugin.messages().format("queued-event-started", Map.of("event", definition.displayName())));
+        broadcastJoinPrompt(definition.displayName(), "queue");
+        startJoinCountdown();
     }
 
     private void restoreAll(Set<UUID> uuids) {
@@ -1606,8 +1625,8 @@ public final class EventManager {
             }
             case SPLEEG -> {
                 player.setGameMode(GameMode.SURVIVAL);
-                player.getInventory().addItem(namedItem(Material.DIAMOND_SHOVEL, "Spleeg Shovel"));
-                player.getInventory().addItem(namedItem(Material.SNOWBALL, "Spleeg Snowballs", 64));
+                player.getInventory().addItem(namedItem(Material.DIAMOND_SHOVEL, "Splegg Shovel"));
+                player.getInventory().addItem(namedItem(Material.SNOWBALL, "Splegg Snowballs", 64));
                 player.getInventory().addItem(new ItemStack(Material.SNOWBALL, 64));
             }
             case SUMO_1V1, SUMO_2V2, SUMO_FFA -> {

@@ -584,7 +584,7 @@ Events requiring block reset:
 
 Spleef
 
-Spleeg
+Splegg
 
 Bedwars
 
@@ -946,7 +946,7 @@ Hot Potato
 
 Spleef
 
-Spleeg
+Splegg
 
 Red Light Green Light
 
