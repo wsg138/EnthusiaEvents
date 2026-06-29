@@ -272,17 +272,20 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return filter(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("map")) {
-            return filter(args[1], List.of("create", "pos1", "pos2", "region", "spawn", "spectator", "checkpoint", "list", "tp", "status", "transfer", "transferall", "export", "exporthub", "exporttrophy", "exportglobal", "exportall"));
+            return filter(args[1], List.of("create", "pos1", "pos2", "region", "spawn", "spectator", "checkpoint", "list", "tp", "retarget", "status", "transfer", "transferall", "export", "exporthub", "exporttrophy", "exportglobal", "exportall"));
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("map")) {
             return filter(args[2], List.of(EventType.values()).stream().map(Enum::name).toList());
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("map")
-                && (args[1].equalsIgnoreCase("transfer") || args[1].equalsIgnoreCase("export"))) {
+                && (args[1].equalsIgnoreCase("transfer") || args[1].equalsIgnoreCase("export") || args[1].equalsIgnoreCase("retarget"))) {
             EventType type = parseEventSilently(args[2]);
             if (type != null) {
                 return filter(args[3], mapSetupService.mapsFor(type).stream().map(EventMap::id).toList());
             }
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("map") && args[1].equalsIgnoreCase("retarget")) {
+            return filter(args[4], Bukkit.getWorlds().stream().map(World::getName).toList());
         }
         return List.of();
     }
@@ -553,6 +556,32 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             case "status", "worldstatus" -> {
                 int page = args.length >= 3 ? parsePositiveInt(args[2], 1) : 1;
                 mapCopyService.sendWorldStatus(sender, page);
+                return true;
+            }
+            case "retarget" -> {
+                if (args.length < 5) {
+                    sender.sendMessage("/ee map retarget <EVENT> <mapId> <worldName>");
+                    return true;
+                }
+                EventType type = parseEvent(sender, args[2]);
+                if (type == null) {
+                    return true;
+                }
+                Optional<EventMap> map = mapSetupService.find(type, args[3]);
+                if (map.isEmpty()) {
+                    plugin.messages().send(sender, "setup-failed", Map.of("reason", "map not found"));
+                    return true;
+                }
+                World world = Bukkit.getWorld(args[4]);
+                if (world == null) {
+                    world = Bukkit.createWorld(new WorldCreator(args[4]));
+                }
+                if (world == null) {
+                    plugin.messages().send(sender, "setup-failed", Map.of("reason", "world could not be loaded"));
+                    return true;
+                }
+                mapSetupService.retargetWorld(map.get(), world);
+                plugin.messages().send(sender, "setup-saved", Map.of("target", "retarget " + map.get().id() + " to " + world.getName()));
                 return true;
             }
             case "transfer" -> {

@@ -224,7 +224,7 @@ public final class MapCopyService {
         if (trophy != null) {
             requests.add(trophy);
         }
-        for (EventMap map : mapSetupService.allMaps()) {
+        for (EventMap map : mapSetupService.allMaps().stream().filter(map -> !isInDedicatedWorld(map)).toList()) {
             requests.add(mapRequest(map, defaultWorldName(map), true));
         }
         if (requests.isEmpty()) {
