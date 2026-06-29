@@ -21,6 +21,8 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
 import org.enthusia.events.EnthusiaEventsPlugin;
 import org.enthusia.events.config.EventConfigService;
@@ -1634,6 +1636,7 @@ public final class EventManager {
             }
             case KNOCKBACK_FFA -> {
                 player.setGameMode(GameMode.ADVENTURE);
+                player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, 20 * 60 * 60, 1, true, false, true));
                 ItemStack stick = namedItem(Material.STICK, "Knockback Stick");
                 stick.addUnsafeEnchantment(Enchantment.KNOCKBACK, 4);
                 player.getInventory().addItem(stick);
@@ -1839,6 +1842,9 @@ public final class EventManager {
     private void resetRuntimeServices() {
         if (arenaResetService != null) {
             arenaResetService.reset();
+        }
+        if (session != null && session.definition().type() == EventType.BLOCK_PARTY) {
+            prepareBlockPartyFloor(session.selectedMap());
         }
         if (podiumService != null) {
             podiumService.clear();

@@ -541,7 +541,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 }
                 String worldName = args.length >= 5 ? args[4] : null;
                 if (worldName == null || worldName.isBlank()) {
-                    worldName = "ee_" + type.name().toLowerCase(Locale.ROOT) + "_" + args[3].toLowerCase(Locale.ROOT);
+                    worldName = mapCopyService.defaultWorldName(map.get());
                 }
                 mapCopyService.exportMap(sender, map.get(), worldName);
                 return true;

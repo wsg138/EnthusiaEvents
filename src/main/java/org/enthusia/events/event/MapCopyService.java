@@ -379,9 +379,22 @@ public final class MapCopyService {
     }
 
     public String defaultWorldName(EventMap map) {
-        return ("ee_" + map.eventType().name() + "_" + map.id())
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9_\\-]", "_");
+        List<EventMap> eventMaps = mapSetupService.allMaps().stream()
+                .filter(candidate -> candidate.eventType() == map.eventType())
+                .sorted(Comparator.comparing(EventMap::id))
+                .toList();
+        String base = "Events-" + displayEventName(map.eventType());
+        if (eventMaps.size() <= 1) {
+            return base;
+        }
+        int index = 0;
+        for (int i = 0; i < eventMaps.size(); i++) {
+            if (eventMaps.get(i).id().equalsIgnoreCase(map.id())) {
+                index = i;
+                break;
+            }
+        }
+        return base + "-" + (index + 1);
     }
 
     public boolean isInDedicatedWorld(EventMap map) {
@@ -431,10 +444,10 @@ public final class MapCopyService {
             return sanitized;
         }
         int suffix = 2;
-        String candidate = sanitized + "_" + suffix;
+        String candidate = sanitized + "-" + suffix;
         while (worldExists(candidate)) {
             suffix++;
-            candidate = sanitized + "_" + suffix;
+            candidate = sanitized + "-" + suffix;
         }
         return candidate;
     }
@@ -447,9 +460,23 @@ public final class MapCopyService {
     }
 
     private String sanitizeWorldName(String worldName) {
-        String sanitized = Optional.ofNullable(worldName).orElse("").toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9_\\-]", "_");
-        return sanitized.isBlank() ? "ee_event_map" : sanitized;
+        String sanitized = Optional.ofNullable(worldName).orElse("")
+                .replaceAll("[^A-Za-z0-9_\\-]", "-")
+                .replaceAll("-{2,}", "-")
+                .replaceAll("^-|-$", "");
+        return sanitized.isBlank() ? "Events-Map" : sanitized;
+    }
+
+    private String displayEventName(EventType type) {
+        String[] parts = type.name().toLowerCase(Locale.ROOT).split("_");
+        StringBuilder builder = new StringBuilder();
+        for (String part : parts) {
+            if (!builder.isEmpty()) {
+                builder.append('-');
+            }
+            builder.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
+        }
+        return builder.toString();
     }
 
     private String nullToUnset(String value) {

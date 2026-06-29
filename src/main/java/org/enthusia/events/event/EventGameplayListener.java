@@ -46,6 +46,7 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
@@ -392,6 +393,21 @@ public final class EventGameplayListener implements Listener {
         }
         event.blockList().removeIf(this::isProtectedBedWarsExplosionBlock);
         event.blockList().forEach(block -> bedWarsPlacedBlocks.remove(locationKey(block.getLocation())));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onFoodLevelChange(FoodLevelChangeEvent event) {
+        EventSession session = eventManager.session();
+        ensureSession(session);
+        if (session == null || !(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        if (!session.participants().contains(player.getUniqueId()) || !isHungerLockedEvent(session.definition().type())) {
+            return;
+        }
+        event.setCancelled(true);
+        player.setFoodLevel(20);
+        player.setSaturation(10.0F);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -2873,6 +2889,20 @@ public final class EventGameplayListener implements Listener {
                 || type == EventType.BOAT_RACE
                 || type == EventType.HORSE_RACE
                 || type == EventType.ELYTRA_RACE;
+    }
+
+    private boolean isHungerLockedEvent(EventType type) {
+        return type == EventType.KNOCKBACK_FFA
+                || type == EventType.PARKOUR
+                || type == EventType.ELYTRA_RACE
+                || type == EventType.BLOCK_PARTY
+                || type == EventType.HORSE_RACE
+                || type == EventType.BOAT_RACE
+                || type == EventType.RED_LIGHT_GREEN_LIGHT
+                || type == EventType.QUAKE
+                || type == EventType.SUMO_1V1
+                || type == EventType.SUMO_2V2
+                || type == EventType.SUMO_FFA;
     }
 
     private boolean usesFallElimination(EventType type) {
