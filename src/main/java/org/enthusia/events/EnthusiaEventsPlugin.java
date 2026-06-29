@@ -35,6 +35,7 @@ import org.enthusia.events.scoreboard.EventScoreboardService;
 import org.enthusia.events.setup.SetupListener;
 import org.enthusia.events.setup.SetupWizard;
 import org.enthusia.events.skin.SkinCache;
+import org.enthusia.events.stats.EventStatsGuiService;
 import org.enthusia.events.stats.EventStatsService;
 import org.enthusia.events.trophy.PodiumService;
 
@@ -50,6 +51,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
     private MapSetupService mapSetupService;
     private MapCopyService mapCopyService;
     private EventStatsService statsService;
+    private EventStatsGuiService statsGuiService;
     private EventKitService kitService;
     private LootTableService lootTableService;
     private EventScoreboardService scoreboardService;
@@ -96,6 +98,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         mapSetupService = new MapSetupService(this);
         mapCopyService = new MapCopyService(this, mapSetupService);
         statsService = new EventStatsService(this);
+        statsGuiService = new EventStatsGuiService(this, statsService, skinCache);
         kitService = new EventKitService(this);
         lootTableService = new LootTableService(this);
         eventManager = new EventManager(this, eventRegistry, snapshotService, statsService, economy, mapSetupService, eventConfigService, kitService, lootTableService);
@@ -116,7 +119,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         specAuditRegistry = new EventSpecAuditRegistry(this, eventRegistry, mapSetupService);
 
         AdminCommand adminCommand = new AdminCommand(this, eventManager, mapSetupService, setupWizard, mapCopyService, restoreConfirmGui, kitService);
-        EventCommand eventCommand = new EventCommand(this, eventManager, statsService, voteGui);
+        EventCommand eventCommand = new EventCommand(this, eventManager, statsGuiService, voteGui);
         UnifiedEventCommand unifiedCommand = new UnifiedEventCommand(eventCommand, adminCommand);
         getCommand("event").setExecutor(unifiedCommand);
         getCommand("event").setTabCompleter(unifiedCommand);
@@ -136,6 +139,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(arenaResetService, this);
         Bukkit.getPluginManager().registerEvents(boatRaceService, this);
         Bukkit.getPluginManager().registerEvents(chatEventService, this);
+        Bukkit.getPluginManager().registerEvents(statsGuiService, this);
         Bukkit.getScheduler().runTaskTimer(this, setupWizard::tickVisuals, 13L, 13L);
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {

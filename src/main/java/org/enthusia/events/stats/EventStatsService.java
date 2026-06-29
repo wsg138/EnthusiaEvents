@@ -54,6 +54,10 @@ public final class EventStatsService {
                 .collect(Collectors.toList());
     }
 
+    public Map<UUID, PlayerEventStats> allStats() {
+        return Map.copyOf(stats);
+    }
+
     public void sendSummary(Player player) {
         PlayerEventStats value = stats(player.getUniqueId());
         plugin.messages().send(player, "stats-header", Map.of(

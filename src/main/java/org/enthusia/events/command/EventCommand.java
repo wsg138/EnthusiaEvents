@@ -11,7 +11,7 @@ import org.enthusia.events.event.EventManager;
 import org.enthusia.events.event.EventSession;
 import org.enthusia.events.event.EventType;
 import org.enthusia.events.gui.EventVoteGui;
-import org.enthusia.events.stats.EventStatsService;
+import org.enthusia.events.stats.EventStatsGuiService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,13 +24,13 @@ public final class EventCommand implements CommandExecutor, TabCompleter {
 
     private final EnthusiaEventsPlugin plugin;
     private final EventManager eventManager;
-    private final EventStatsService statsService;
+    private final EventStatsGuiService statsGuiService;
     private final EventVoteGui voteGui;
 
-    public EventCommand(EnthusiaEventsPlugin plugin, EventManager eventManager, EventStatsService statsService, EventVoteGui voteGui) {
+    public EventCommand(EnthusiaEventsPlugin plugin, EventManager eventManager, EventStatsGuiService statsGuiService, EventVoteGui voteGui) {
         this.plugin = plugin;
         this.eventManager = eventManager;
-        this.statsService = statsService;
+        this.statsGuiService = statsGuiService;
         this.voteGui = voteGui;
     }
 
@@ -101,7 +101,7 @@ public final class EventCommand implements CommandExecutor, TabCompleter {
                     ));
                 }
             }
-            case "stats" -> statsService.sendSummary(player);
+            case "stats" -> statsGuiService.openMain(player);
             case "next", "time", "timer" ->
                     plugin.messages().send(player, "next-event", Map.of("time", eventManager.nextHourlyVoteLabel()));
             default -> {

@@ -581,7 +581,9 @@ public final class SetupWizard {
                 player.getInventory().setItem(slot++, tool(Material.LIGHT_BLUE_WOOL, SetupTool.AREA_POS1, "", "Breakable Area Pos 1"));
                 player.getInventory().setItem(slot++, tool(Material.BLUE_WOOL, SetupTool.AREA_POS2, "", "Breakable Area Pos 2"));
                 player.getInventory().setItem(slot++, tool(Material.DIAMOND_SHOVEL, SetupTool.AREA, "breakable-area", "Save Breakable Area"));
-                player.getInventory().setItem(slot++, tool(Material.SNOW_BLOCK, SetupTool.POINT, "breakable-block", "Breakable Block Type"));
+                if (eventType == EventType.SPLEEF) {
+                    player.getInventory().setItem(slot++, tool(Material.SNOW_BLOCK, SetupTool.POINT, "breakable-block", "Breakable Block Type"));
+                }
             }
             default -> {
             }

@@ -486,7 +486,8 @@ public final class EventManager {
         unmarkEventPlayer(player);
         if (wasParticipant && session.phase() == EventPhase.ACTIVE) {
             if (session.participants().isEmpty()) {
-                scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 0L);
+                cancelTask();
+                scheduleEndActiveEvent(List.of(), 0L);
             } else if (isLastPlayerStandingEvent(session.definition().type()) && session.participants().size() <= 1) {
                 scheduleEndActiveEvent(List.copyOf(session.participants()), 60L);
             }

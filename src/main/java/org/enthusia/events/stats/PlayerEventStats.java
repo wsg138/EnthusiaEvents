@@ -49,6 +49,15 @@ public final class PlayerEventStats {
         return eventLossCounts;
     }
 
+    public double winRatio() {
+        return totalEventsPlayed <= 0 ? 0.0D : totalWins / (double) totalEventsPlayed;
+    }
+
+    public double winRatio(EventType type) {
+        int played = eventPlayCounts.getOrDefault(type, 0);
+        return played <= 0 ? 0.0D : eventWinCounts.getOrDefault(type, 0) / (double) played;
+    }
+
     public void recordParticipation(EventType type) {
         totalEventsPlayed++;
         eventPlayCounts.merge(type, 1, Integer::sum);
