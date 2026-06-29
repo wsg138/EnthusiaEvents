@@ -547,7 +547,8 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
             case "status", "worldstatus" -> {
-                mapCopyService.sendWorldStatus(sender);
+                int page = args.length >= 3 ? parsePositiveInt(args[2], 1) : 1;
+                mapCopyService.sendWorldStatus(sender, page);
                 return true;
             }
             case "transfer" -> {
@@ -724,6 +725,15 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return EventType.valueOf(raw.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
             return null;
+        }
+    }
+
+    private int parsePositiveInt(String raw, int fallback) {
+        try {
+            int value = Integer.parseInt(raw);
+            return Math.max(1, value);
+        } catch (NumberFormatException ex) {
+            return fallback;
         }
     }
 }

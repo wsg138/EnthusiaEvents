@@ -1,6 +1,7 @@
 package org.enthusia.events.event;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
@@ -24,6 +25,7 @@ import java.util.function.Consumer;
 public final class MapCopyService {
 
     private static final int BLOCKS_PER_TICK = 2_000;
+    private static final int STATUS_PAGE_SIZE = 6;
     private static final String EXPORT_FAILED = "map-export-failed";
     private static final String REASON = "reason";
     private static final String ANOTHER_EXPORT_RUNNING = "another export is already running";
@@ -45,22 +47,59 @@ public final class MapCopyService {
         return startQueue(sender, new ArrayDeque<>(List.of(mapRequest(map, worldName, true))));
     }
 
-    public void sendWorldStatus(CommandSender sender) {
+    public void sendWorldStatus(CommandSender sender, int page) {
         List<EventMap> maps = mapSetupService.allMaps();
         if (maps.isEmpty()) {
-            sender.sendMessage("No event maps are configured.");
+            sender.sendMessage(ChatColor.RED + "No event maps are configured.");
             return;
         }
-        sender.sendMessage("Event map world status:");
-        maps.stream()
+        List<MapWorldStatus> statuses = maps.stream()
                 .sorted(Comparator.comparing((EventMap map) -> map.eventType().name()).thenComparing(EventMap::id))
-                .forEach(map -> {
-                    String state = isInDedicatedWorld(map) ? "own world" : "shared world";
-                    sender.sendMessage("- " + map.eventType().name() + " " + map.id()
-                            + " | " + state
-                            + " | current=" + nullToUnset(map.worldName())
-                            + " | target=" + defaultWorldName(map));
-                });
+                .map(map -> new MapWorldStatus(map, isInDedicatedWorld(map)))
+                .toList();
+        long ownWorlds = statuses.stream().filter(MapWorldStatus::dedicated).count();
+        List<MapWorldStatus> needsTransfer = statuses.stream().filter(status -> !status.dedicated()).toList();
+        List<MapWorldStatus> ownWorldList = statuses.stream().filter(MapWorldStatus::dedicated).toList();
+        List<MapWorldStatus> display = needsTransfer.isEmpty() ? ownWorldList : needsTransfer;
+        int maxPage = Math.max(1, (int) Math.ceil(display.size() / (double) STATUS_PAGE_SIZE));
+        int safePage = Math.max(1, Math.min(page, maxPage));
+        int from = (safePage - 1) * STATUS_PAGE_SIZE;
+        int to = Math.min(display.size(), from + STATUS_PAGE_SIZE);
+
+        sender.sendMessage(ChatColor.DARK_GRAY + "----------------------------------------");
+        sender.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "Event Map Worlds"
+                + ChatColor.GRAY + "  Page " + safePage + "/" + maxPage);
+        sender.sendMessage(ChatColor.GRAY + "Own worlds: " + ChatColor.GREEN + ownWorlds
+                + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "Need transfer: "
+                + (needsTransfer.isEmpty() ? ChatColor.GREEN : ChatColor.YELLOW) + needsTransfer.size());
+        sender.sendMessage(ChatColor.DARK_GRAY + "----------------------------------------");
+
+        if (!needsTransfer.isEmpty()) {
+            sender.sendMessage(ChatColor.YELLOW + "" + ChatColor.BOLD + "Needs Transfer");
+        } else {
+            sender.sendMessage(ChatColor.GREEN + "" + ChatColor.BOLD + "Already In Own Worlds");
+        }
+        for (int i = from; i < to; i++) {
+            sendStatusLine(sender, display.get(i));
+        }
+        if (display.isEmpty()) {
+            sender.sendMessage(ChatColor.GREEN + "Every configured map appears to be in its own world.");
+        }
+        sender.sendMessage(ChatColor.DARK_GRAY + "----------------------------------------");
+        sender.sendMessage(ChatColor.GRAY + "Commands: " + ChatColor.AQUA + "/ee map transferall"
+                + ChatColor.DARK_GRAY + " | " + ChatColor.AQUA + "/ee map status " + (safePage + 1));
+    }
+
+    private void sendStatusLine(CommandSender sender, MapWorldStatus status) {
+        EventMap map = status.map();
+        ChatColor stateColor = status.dedicated() ? ChatColor.GREEN : ChatColor.YELLOW;
+        String state = status.dedicated() ? "OWN" : "MOVE";
+        sender.sendMessage(stateColor + "[" + state + "] " + ChatColor.WHITE + map.eventType().name()
+                + ChatColor.GRAY + " / " + ChatColor.AQUA + map.id());
+        sender.sendMessage(ChatColor.DARK_GRAY + "  Current: " + ChatColor.GRAY + nullToUnset(map.worldName()));
+        if (!status.dedicated()) {
+            sender.sendMessage(ChatColor.DARK_GRAY + "  Target:  " + ChatColor.GRAY + defaultWorldName(map));
+        }
     }
 
     public boolean transferMap(CommandSender sender, EventMap map, String requestedWorldName, boolean confirmed) {
@@ -419,5 +458,8 @@ public final class MapCopyService {
 
     private record CopyRequest(String label, String worldName, CuboidRegion region, boolean voidWorld,
                                boolean requireUnusedWorld, Consumer<World> onComplete) {
+    }
+
+    private record MapWorldStatus(EventMap map, boolean dedicated) {
     }
 }
