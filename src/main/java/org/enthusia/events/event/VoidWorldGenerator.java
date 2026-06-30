@@ -11,6 +11,31 @@ import java.util.Random;
 public final class VoidWorldGenerator extends ChunkGenerator {
 
     @Override
+    public ChunkData generateChunkData(World world, Random random, int chunkX, int chunkZ, BiomeGrid biome) {
+        return createChunkData(world);
+    }
+
+    @Override
+    public void generateNoise(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData chunkData) {
+        // Intentionally empty.
+    }
+
+    @Override
+    public void generateSurface(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData chunkData) {
+        // Intentionally empty.
+    }
+
+    @Override
+    public void generateBedrock(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData chunkData) {
+        // Intentionally empty.
+    }
+
+    @Override
+    public void generateCaves(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData chunkData) {
+        // Intentionally empty.
+    }
+
+    @Override
     public boolean shouldGenerateNoise() {
         return false;
     }
