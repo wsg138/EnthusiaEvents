@@ -46,6 +46,7 @@ public final class BoatRaceService implements Listener {
     private final EventManager eventManager;
     private final Map<UUID, UUID> playerBoats = new HashMap<>();
     private final Map<UUID, UUID> playerHorses = new HashMap<>();
+    private final Map<UUID, Integer> boatCheckpointProgress = new HashMap<>();
     private final Map<String, BlockState> releaseWallOriginals = new LinkedHashMap<>();
 
     public BoatRaceService(EnthusiaEventsPlugin plugin, EventManager eventManager) {
@@ -120,6 +121,7 @@ public final class BoatRaceService implements Listener {
     }
 
     public void cleanupPlayer(UUID uuid) {
+        boatCheckpointProgress.remove(uuid);
         UUID boatId = playerBoats.remove(uuid);
         if (boatId != null) {
             Entity boat = Bukkit.getEntity(boatId);
@@ -221,13 +223,48 @@ public final class BoatRaceService implements Listener {
             return;
         }
         Location location = event.getTo();
+        recordBoatCheckpoint(player, map, location);
         boolean finished = map.checkpoints().entrySet().stream()
                 .filter(entry -> entry.getKey().toLowerCase(Locale.ROOT).startsWith("finish"))
                 .map(Map.Entry::getValue)
                 .anyMatch(finish -> sameBlock(finish, location));
         if (finished) {
+            if (!completedBoatCheckpoints(player, map)) {
+                player.sendActionBar(org.bukkit.ChatColor.RED + "Complete every checkpoint before finishing.");
+                return;
+            }
             eventManager.finishParticipant(player);
         }
+    }
+
+    private void recordBoatCheckpoint(Player player, EventMap map, Location location) {
+        map.checkpoints().entrySet().stream()
+                .filter(entry -> isRaceCheckpoint(entry.getKey()))
+                .filter(entry -> sameBlock(entry.getValue(), location))
+                .findFirst()
+                .ifPresent(entry -> boatCheckpointProgress.merge(player.getUniqueId(), checkpointOrder(entry.getKey()), Math::max));
+    }
+
+    private boolean completedBoatCheckpoints(Player player, EventMap map) {
+        int required = map.checkpoints().keySet().stream()
+                .filter(this::isRaceCheckpoint)
+                .mapToInt(this::checkpointOrder)
+                .max()
+                .orElse(0);
+        return required <= 0 || boatCheckpointProgress.getOrDefault(player.getUniqueId(), 0) >= required;
+    }
+
+    private boolean isRaceCheckpoint(String key) {
+        String lower = key.toLowerCase(Locale.ROOT);
+        return lower.startsWith("checkpoint") || lower.startsWith("cp");
+    }
+
+    private int checkpointOrder(String key) {
+        String digits = key.toLowerCase(Locale.ROOT).replaceAll("\\D+", "");
+        if (digits.isBlank()) {
+            return 1;
+        }
+        return Integer.parseInt(digits);
     }
 
     private boolean isRaceMountParticipant(Player player) {

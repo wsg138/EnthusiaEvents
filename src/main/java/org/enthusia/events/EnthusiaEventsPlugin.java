@@ -81,7 +81,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
             saveConfig();
         }
         java.util.List<String> blockedCommands = new java.util.ArrayList<>(getConfig().getStringList("restrictions.blocked-commands"));
-        for (String command : java.util.List.of("accept", "tpaccept", "tpa", "tpahere", "tpask")) {
+        for (String command : java.util.List.of("accept", "tpaccept", "tpa", "tpahere", "tpask", "withdraw", "deposit")) {
             if (blockedCommands.stream().noneMatch(existing -> existing.equalsIgnoreCase(command))) {
                 blockedCommands.add(command);
             }

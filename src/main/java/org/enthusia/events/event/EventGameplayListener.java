@@ -45,8 +45,10 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDismountEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
+import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
@@ -137,6 +139,7 @@ public final class EventGameplayListener implements Listener {
     private final Map<UUID, Integer> quakeScores = new HashMap<>();
     private final Map<UUID, BukkitTask> quakeRespawns = new HashMap<>();
     private final Map<UUID, Integer> oneInTheChamberScores = new HashMap<>();
+    private final Map<UUID, BukkitTask> oneInTheChamberRespawns = new HashMap<>();
     private final Map<UUID, EventInventoryLayout> eventInventoryLayouts = new HashMap<>();
     private final Map<UUID, Integer> spleggLastShotTicks = new HashMap<>();
     private final Map<UUID, BukkitTask> ctfRespawns = new HashMap<>();
@@ -180,6 +183,8 @@ public final class EventGameplayListener implements Listener {
     private int blockPartySoundStage;
     private int blockPartyRound;
     private int blockPartyClearDelay;
+    private int skyWarsActiveSeconds;
+    private boolean skyWarsGlowApplied;
     private int bedWarsGeneratorTicks;
     private boolean bedWarsBedsDestroyedByTimer;
     private final List<UUID> bedWarsGolems = new ArrayList<>();
@@ -737,6 +742,13 @@ public final class EventGameplayListener implements Listener {
             }
             return;
         }
+        if (type == EventType.ONE_IN_THE_CHAMBER) {
+            if (event instanceof EntityDamageByEntityEvent) {
+                return;
+            }
+            event.setCancelled(true);
+            return;
+        }
         // BedWars: intercept lethal damage, prevent vanilla death screen
         if (type == EventType.BEDWARS && player.getHealth() - event.getFinalDamage() <= 0.0D) {
             event.setCancelled(true);
@@ -794,7 +806,16 @@ public final class EventGameplayListener implements Listener {
             event.setCancelled(true);
             return;
         }
+        if (type == EventType.SPLEGG && event.getEntity() instanceof Player) {
+            event.setCancelled(true);
+            return;
+        }
         Player damager = damagePlayer;
+        if (type == EventType.BEDWARS && event.getEntity() instanceof Player target && damager != null
+                && sameTeam(session, target, damager)) {
+            event.setCancelled(true);
+            return;
+        }
         if (type == EventType.CAPTURE_THE_FLAG && event.getEntity() instanceof Player target && damager != null) {
             handleCaptureTheFlagDamage(session, target, damager, event);
             return;
@@ -803,13 +824,21 @@ public final class EventGameplayListener implements Listener {
             handleCapturePlayersDamage(session, target, damager, event);
             return;
         }
-        if (type == EventType.ONE_IN_THE_CHAMBER && damager != null && event.getDamager() instanceof Arrow) {
-            event.setDamage(1000.0D);
+        if (type == EventType.ONE_IN_THE_CHAMBER && damager != null && event.getEntity() instanceof Player target
+                && event.getDamager() instanceof Arrow) {
+            event.setCancelled(true);
+            handleOneInTheChamberKill(session, damager, target);
             return;
         }
-        if (type == EventType.ONE_IN_THE_CHAMBER && damager != null && event.getEntity() instanceof Player
+        if (type == EventType.ONE_IN_THE_CHAMBER && damager != null && event.getEntity() instanceof Player target
                 && damager.getInventory().getItemInMainHand().getType().name().endsWith("_AXE")) {
-            event.setDamage(1000.0D);
+            event.setCancelled(true);
+            Material axe = damager.getInventory().getItemInMainHand().getType();
+            if (damager.hasCooldown(axe)) {
+                return;
+            }
+            damager.setCooldown(axe, plugin.getConfig().getInt("one-in-the-chamber.axe-cooldown-ticks", 20));
+            handleOneInTheChamberKill(session, damager, target);
             return;
         }
         // BedWars: prevent owner/allies from damaging their own Iron Golems
@@ -867,6 +896,10 @@ public final class EventGameplayListener implements Listener {
         event.getDrops().clear();
         event.setDroppedExp(0);
         Player killer = player.getKiller();
+        if (session.definition().type() == EventType.ELYTRA_RACE) {
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Respawning at your last checkpoint.");
+            return;
+        }
         if (session.definition().type() == EventType.ONE_IN_THE_CHAMBER) {
             rememberEventInventoryLayout(player);
             if (killer != null && session.participants().contains(killer.getUniqueId())) {
@@ -898,6 +931,27 @@ public final class EventGameplayListener implements Listener {
             eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " was eliminated.");
         }
         eventManager.eliminateParticipant(player, "died");
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onItemDamage(PlayerItemDamageEvent event) {
+        EventSession session = eventManager.session();
+        if (session != null && session.definition().type() == EventType.BEDWARS
+                && eventManager.isEventPlayer(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onDismount(EntityDismountEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        EventSession session = eventManager.session();
+        if (session != null && session.definition().type() == EventType.CAPTURE_PLAYERS
+                && capturePlayerCarrierByPrisoner.containsKey(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
     }
 
     private void scheduleBedWarsRespawn(EventSession session, Player player) {
@@ -975,6 +1029,20 @@ public final class EventGameplayListener implements Listener {
             });
             return;
         }
+        if (session.definition().type() == EventType.ELYTRA_RACE && session.participants().contains(event.getPlayer().getUniqueId())) {
+            Location spawn = map == null ? null : safeLocation(event.getPlayer(), map).clone().add(0.0D, 1.0D, 0.0D);
+            if (spawn != null) {
+                event.setRespawnLocation(spawn);
+            }
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Player player = event.getPlayer();
+                player.setGameMode(GameMode.SURVIVAL);
+                player.setHealth(player.getMaxHealth());
+                player.setFireTicks(0);
+                player.setFallDistance(0.0F);
+            });
+            return;
+        }
         if (!session.spectators().contains(event.getPlayer().getUniqueId())) {
             return;
         }
@@ -1040,6 +1108,8 @@ public final class EventGameplayListener implements Listener {
         quakeScores.clear();
         eventInventoryLayouts.clear();
         spleggLastShotTicks.clear();
+        oneInTheChamberRespawns.values().forEach(BukkitTask::cancel);
+        oneInTheChamberRespawns.clear();
         quakeRespawns.values().forEach(BukkitTask::cancel);
         quakeRespawns.clear();
         ctfRespawns.values().forEach(BukkitTask::cancel);
@@ -1085,6 +1155,8 @@ public final class EventGameplayListener implements Listener {
         blockPartySoundStage = 0;
         blockPartyRound = 0;
         blockPartyClearDelay = 0;
+        skyWarsActiveSeconds = 0;
+        skyWarsGlowApplied = false;
         if (blockPartyTask != null) {
             blockPartyTask.cancel();
             blockPartyTask = null;
@@ -1148,6 +1220,7 @@ public final class EventGameplayListener implements Listener {
             case BLOCK_PARTY -> ensureBlockPartyTask();
             case CAPTURE_THE_FLAG -> ensureCaptureTheFlagBlocks(session.selectedMap());
             case CAPTURE_PLAYERS -> tickCapturePlayers(session);
+            case SKYWARS -> tickSkyWars(session);
             case BEDWARS -> {
                 tickBedWarsGenerators(session);
                 ensureBedWarsShops(session);
@@ -1156,6 +1229,21 @@ public final class EventGameplayListener implements Listener {
                 destroyBedWarsBedsOnTimer(session);
             }
             default -> {
+            }
+        }
+    }
+
+    private void tickSkyWars(EventSession session) {
+        skyWarsActiveSeconds++;
+        if (skyWarsGlowApplied || skyWarsActiveSeconds < plugin.getConfig().getInt("skywars.glow-after-seconds", 300)) {
+            return;
+        }
+        skyWarsGlowApplied = true;
+        eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "All remaining SkyWars players are now glowing.");
+        for (UUID uuid : session.participants()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null) {
+                player.setGlowing(true);
             }
         }
     }
@@ -1424,7 +1512,8 @@ public final class EventGameplayListener implements Listener {
 
     private void captureFlag(EventSession session, Player player, String ownTeam, String carriedTeam) {
         if (ctfCarriers.containsValue(ownTeam) || ctfDroppedFlags.containsKey(ownTeam)) {
-            sendActionBar(player, ChatColor.RED + "Your flag must be home to capture");
+            sendActionBar(player, ChatColor.RED + "Your flag has to be at base before you can capture");
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "Your flag has to be at base before you can capture.");
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.8F, 0.8F);
             return;
         }
@@ -1447,7 +1536,7 @@ public final class EventGameplayListener implements Listener {
                     .map(Map.Entry::getKey)
                     .filter(session.participants()::contains)
                     .toList();
-            eventManager.endActiveEvent(winners.isEmpty() ? List.of(player.getUniqueId()) : winners);
+            eventManager.endActiveEventDelayed(winners.isEmpty() ? List.of(player.getUniqueId()) : winners, 80L);
             return;
         }
         player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Flag captured.");
@@ -1959,7 +2048,7 @@ public final class EventGameplayListener implements Listener {
     private void launchSpleggSnowball(Player player) {
         int tick = player.getTicksLived();
         Integer lastTick = spleggLastShotTicks.put(player.getUniqueId(), tick);
-        if (lastTick != null && lastTick == tick) {
+        if (lastTick != null && tick - lastTick < 4) {
             return;
         }
         Snowball snowball = player.launchProjectile(Snowball.class);
@@ -2573,7 +2662,7 @@ public final class EventGameplayListener implements Listener {
                 // Green → Yellow transition (10 ticks / 0.5s)
                 greenLight = false;
                 yellowLight = true;
-                redLightSeconds = 10;
+                redLightSeconds = plugin.getConfig().getInt("red-light-green-light.yellow-ticks", 20);
                 redLightLastSafeLocation.clear();
                 EventMap map = session.selectedMap();
                 if (map != null) {
@@ -3068,6 +3157,8 @@ public final class EventGameplayListener implements Listener {
                 || type == EventType.BOAT_RACE
                 || type == EventType.RED_LIGHT_GREEN_LIGHT
                 || type == EventType.QUAKE
+                || type == EventType.BEDWARS
+                || type == EventType.ONE_IN_THE_CHAMBER
                 || type == EventType.SUMO_1V1
                 || type == EventType.SUMO_2V2
                 || type == EventType.SUMO_FFA;
@@ -3087,7 +3178,6 @@ public final class EventGameplayListener implements Listener {
                 || type == EventType.FIGHT_1V1
                 || type == EventType.FIGHT_2V2
                 || type == EventType.FIGHT_FFA
-                || type == EventType.ONE_IN_THE_CHAMBER
                 || type == EventType.HOT_POTATO;
     }
 
@@ -3099,6 +3189,12 @@ public final class EventGameplayListener implements Listener {
             return player;
         }
         return null;
+    }
+
+    private boolean sameTeam(EventSession session, Player first, Player second) {
+        String firstTeam = session.teams().get(first.getUniqueId());
+        String secondTeam = session.teams().get(second.getUniqueId());
+        return firstTeam != null && firstTeam.equals(secondTeam);
     }
 
     private void fireQuake(Player shooter, EventSession session) {
@@ -3163,6 +3259,63 @@ public final class EventGameplayListener implements Listener {
     private void addOneInTheChamberScore(Player player, int delta) {
         int score = oneInTheChamberScores.merge(player.getUniqueId(), delta, Integer::sum);
         eventManager.setRuntimeScoreboardValue("oitc-score-" + player.getUniqueId(), String.valueOf(score));
+    }
+
+    private void handleOneInTheChamberKill(EventSession session, Player killer, Player target) {
+        if (killer.getUniqueId().equals(target.getUniqueId()) || oneInTheChamberRespawns.containsKey(target.getUniqueId())) {
+            return;
+        }
+        rememberEventInventoryLayout(target);
+        addOneInTheChamberScore(killer, 1);
+        refillOneInTheChamberArrow(killer);
+        killer.playSound(killer.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.9F, 1.5F);
+        target.playSound(target.getLocation(), Sound.ENTITY_PLAYER_HURT, 0.9F, 0.7F);
+        eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + killer.getName()
+                + " eliminated " + target.getName() + ".");
+        scheduleOneInTheChamberRespawn(session, target);
+    }
+
+    private void scheduleOneInTheChamberRespawn(EventSession session, Player player) {
+        player.setFireTicks(0);
+        player.setFallDistance(0.0F);
+        player.setVelocity(new Vector(0, 0, 0));
+        player.setHealth(player.getMaxHealth());
+        player.setGameMode(GameMode.SPECTATOR);
+        final int[] seconds = {3};
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            EventSession current = eventManager.session();
+            if (current == null || current != session || current.phase() != EventPhase.ACTIVE
+                    || current.definition().type() != EventType.ONE_IN_THE_CHAMBER
+                    || !current.participants().contains(player.getUniqueId()) || !player.isOnline()) {
+                BukkitTask currentTask = oneInTheChamberRespawns.remove(player.getUniqueId());
+                if (currentTask != null) {
+                    currentTask.cancel();
+                }
+                return;
+            }
+            if (seconds[0] > 0) {
+                showRespawnCountdown(player, seconds[0], 3, ChatColor.YELLOW);
+                seconds[0]--;
+                return;
+            }
+            BukkitTask currentTask = oneInTheChamberRespawns.remove(player.getUniqueId());
+            if (currentTask != null) {
+                currentTask.cancel();
+            }
+            Location spawn = randomSpawn(current.selectedMap());
+            player.setGameMode(GameMode.SURVIVAL);
+            player.setHealth(player.getMaxHealth());
+            player.setFoodLevel(20);
+            player.setSaturation(10.0F);
+            player.setFireTicks(0);
+            player.setFallDistance(0.0F);
+            applyOneInTheChamberLoadout(player);
+            if (spawn != null) {
+                TeleportService.teleport(plugin, player, spawn, "one in the chamber respawn");
+            }
+            clearRespawnCountdown(player);
+        }, 0L, 20L);
+        oneInTheChamberRespawns.put(player.getUniqueId(), task);
     }
 
     private void refillOneInTheChamberArrow(Player player) {

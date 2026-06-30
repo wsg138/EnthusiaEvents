@@ -425,6 +425,7 @@ public final class EventManager {
         } else if (!(session.definition().type() == EventType.BLOCK_PARTY && "stood on the wrong color".equalsIgnoreCase(reason))) {
             plugin.messages().send(player, "event-eliminated", Map.of("reason", reason));
         }
+        player.setGlowing(false);
         if (session.participants().isEmpty()) {
             scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 60L);
         } else if (isLastPlayerStandingEvent(session.definition().type()) && session.participants().size() <= 1) {
@@ -556,6 +557,7 @@ public final class EventManager {
                 Player player = Bukkit.getPlayer(uuid);
                 if (player != null) {
                     restoreTemporaryEventAttributes(player);
+                    cleanupTrophyInventory(player, session.definition().type());
                     player.setGameMode(GameMode.SURVIVAL);
                     player.setAllowFlight(false);
                     player.setFlying(false);
@@ -606,6 +608,10 @@ public final class EventManager {
                 }
             }
         }, delayTicks);
+    }
+
+    public void endActiveEventDelayed(List<UUID> rankedPlayers, long delayTicks) {
+        scheduleEndActiveEvent(rankedPlayers, delayTicks);
     }
 
     public void stop(String reason) {
@@ -1285,8 +1291,10 @@ public final class EventManager {
             if (player != null) {
                 allowTeleport(uuid);
                 restoreTemporaryEventAttributes(player);
+                player.setGlowing(false);
                 cleanupEventInventory(player);
                 snapshotService.restore(player, false);
+                player.setGlowing(false);
                 restoreScoreboard(player);
                 unmarkEventPlayer(player);
             }
@@ -1493,6 +1501,7 @@ public final class EventManager {
             }
             Player player = Bukkit.getPlayer(uuid);
             if (player != null) {
+                spawnLocked.remove(uuid);
                 player.setGameMode(GameMode.SPECTATOR);
                 player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GRAY
                         + "You are waiting for your bracket match.");
@@ -1527,6 +1536,7 @@ public final class EventManager {
                 winner.setFoodLevel(20);
                 winner.setFireTicks(0);
                 winner.setGameMode(GameMode.SPECTATOR);
+                spawnLocked.remove(winnerId);
                 messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN
                         + winner.getName() + " won the bracket match.");
             }
@@ -1681,7 +1691,7 @@ public final class EventManager {
                 player.setGameMode(GameMode.ADVENTURE);
                 player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, 20 * 60 * 60, 1, true, false, true));
                 ItemStack stick = namedItem(Material.STICK, "Knockback Stick");
-                stick.addUnsafeEnchantment(Enchantment.KNOCKBACK, 4);
+                stick.addUnsafeEnchantment(Enchantment.KNOCKBACK, 2);
                 player.getInventory().addItem(stick);
                 player.getInventory().addItem(namedItem(Material.ENDER_PEARL, "Recovery Pearl"));
             }
@@ -1906,6 +1916,15 @@ public final class EventManager {
     private void cleanupEventInventory(Player player) {
         player.getInventory().remove(Material.ENDER_PEARL);
         player.updateInventory();
+    }
+
+    private void cleanupTrophyInventory(Player player, EventType type) {
+        if (type == EventType.QUAKE) {
+            player.getInventory().clear();
+            player.getInventory().setArmorContents(null);
+            player.getInventory().setItemInOffHand(null);
+            player.updateInventory();
+        }
     }
 
     private void restoreScoreboard(Player player) {

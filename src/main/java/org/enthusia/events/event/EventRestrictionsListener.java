@@ -78,8 +78,13 @@ public final class EventRestrictionsListener implements Listener {
         EventMap activeMap = eventManager.activeMap();
 
         if (eventManager.isEventPlayer(player.getUniqueId())) {
+            if (session != null && session.spectators().contains(player.getUniqueId())
+                    && event.getCause() == PlayerTeleportEvent.TeleportCause.SPECTATE) {
+                event.setCancelled(true);
+                return;
+            }
             if (event.getCause() == PlayerTeleportEvent.TeleportCause.ENDER_PEARL
-                    && (session == null || !session.definition().allowEnderPearl())) {
+                    && (session == null || !allowsEventPearls(session.definition().type()))) {
                 event.setCancelled(true);
                 player.getInventory().remove(Material.ENDER_PEARL);
                 sendBlockedWarning(player, "blocked-teleport");
@@ -149,7 +154,7 @@ public final class EventRestrictionsListener implements Listener {
             return;
         }
         EventSession session = eventManager.session();
-        if (session == null || !eventManager.isEventPlayer(player.getUniqueId()) || session.definition().allowEnderPearl()) {
+        if (session == null || !eventManager.isEventPlayer(player.getUniqueId()) || allowsEventPearls(session.definition().type())) {
             return;
         }
         event.setCancelled(true);
@@ -221,7 +226,6 @@ public final class EventRestrictionsListener implements Listener {
         } else {
             event.setTo(event.getFrom());
         }
-        sendBlockedWarning(event.getPlayer(), "blocked-teleport");
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -254,15 +258,43 @@ public final class EventRestrictionsListener implements Listener {
                     && type != EventType.SPLEEF
                     && type != EventType.SPLEGG;
         }
+        CuboidRegion hubRegion = eventManager.waitingHubRegion();
+        if (hubRegion != null && hubRegion.contains(location)) {
+            return true;
+        }
+        CuboidRegion trophyRegion = eventManager.trophyRoomRegion();
+        if (trophyRegion != null && trophyRegion.contains(location)) {
+            return true;
+        }
         return mapSetupService.isInsideAnyConfiguredRegion(location);
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onDrop(PlayerDropItemEvent event) {
         EventSession session = eventManager.session();
+        Player player = event.getPlayer();
+        if (!(plugin.getConfig().getBoolean("restrictions.allow-admin-bypass", true)
+                && player.hasPermission("enthusia.events.admin"))) {
+            CuboidRegion hubRegion = eventManager.waitingHubRegion();
+            CuboidRegion trophyRegion = eventManager.trophyRoomRegion();
+            Location location = player.getLocation();
+            if ((hubRegion != null && hubRegion.contains(location))
+                    || (trophyRegion != null && trophyRegion.contains(location))) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+        if (session != null && eventManager.isEventPlayer(event.getPlayer().getUniqueId())
+                && (session.phase() == EventPhase.JOIN || session.phase() == EventPhase.COUNTDOWN)) {
+            event.setCancelled(true);
+            return;
+        }
         if (session != null
                 && (session.definition().type() == EventType.CAPTURE_THE_FLAG
-                || session.definition().type() == EventType.BLOCK_PARTY)
+                || session.definition().type() == EventType.BLOCK_PARTY
+                || session.definition().type() == EventType.QUAKE
+                || session.definition().type() == EventType.KNOCKBACK_FFA
+                || session.definition().type() == EventType.SPLEGG)
                 && session.participants().contains(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
             return;
@@ -311,6 +343,10 @@ public final class EventRestrictionsListener implements Listener {
 
     private boolean isHelmetRawSlot(int rawSlot) {
         return rawSlot == 5;
+    }
+
+    private boolean allowsEventPearls(EventType type) {
+        return type == EventType.SKYWARS || type == EventType.KNOCKBACK_FFA || type == EventType.BEDWARS;
     }
 
     @EventHandler(ignoreCancelled = true)
