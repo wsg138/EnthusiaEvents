@@ -13,6 +13,8 @@ import org.enthusia.events.EnthusiaEventsPlugin;
 import org.enthusia.events.util.LocationCodec;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -58,7 +60,7 @@ public final class MapCopyService {
             return false;
         }
         Queue<CopyRequest> requests = maps.stream()
-                .map(map -> mapRequest(map, defaultWorldName(map), true))
+                .map(map -> mapRequest(map, defaultWorldName(map), true, false))
                 .collect(java.util.stream.Collectors.toCollection(ArrayDeque::new));
         return startQueue(sender, requests);
     }
@@ -144,7 +146,7 @@ public final class MapCopyService {
         }
         List<CopyRequest> requests = mapSetupService.allMaps().stream()
                 .filter(map -> !isInDedicatedWorld(map))
-                .map(map -> mapRequest(map, nextAvailableWorldName(defaultWorldName(map), false), true))
+                .map(map -> mapRequest(map, nextAvailableWorldName(defaultWorldName(map), false), true, false))
                 .toList();
         if (requests.isEmpty()) {
             sender.sendMessage("All configured event maps already appear to be in their own worlds.");
@@ -195,8 +197,8 @@ public final class MapCopyService {
             return false;
         }
         List<CopyRequest> requests = new ArrayList<>();
-        CopyRequest hub = configuredAreaRequest("waiting hub", "locations.waiting-hub", "locations.waiting-hub-region", "ee_waiting_hub");
-        CopyRequest trophy = configuredAreaRequest("trophy room", "locations.trophy-room", "locations.trophy-room-region", "ee_trophy_room");
+        CopyRequest hub = configuredAreaRequest("waiting hub", "locations.waiting-hub", "locations.waiting-hub-region", "ee_waiting_hub", false);
+        CopyRequest trophy = configuredAreaRequest("trophy room", "locations.trophy-room", "locations.trophy-room-region", "ee_trophy_room", false);
         if (hub != null) {
             requests.add(hub);
         }
@@ -216,8 +218,8 @@ public final class MapCopyService {
             return false;
         }
         List<CopyRequest> requests = new ArrayList<>();
-        CopyRequest hub = configuredAreaRequest("waiting hub", "locations.waiting-hub", "locations.waiting-hub-region", "ee_waiting_hub");
-        CopyRequest trophy = configuredAreaRequest("trophy room", "locations.trophy-room", "locations.trophy-room-region", "ee_trophy_room");
+        CopyRequest hub = configuredAreaRequest("waiting hub", "locations.waiting-hub", "locations.waiting-hub-region", "ee_waiting_hub", true);
+        CopyRequest trophy = configuredAreaRequest("trophy room", "locations.trophy-room", "locations.trophy-room-region", "ee_trophy_room", true);
         if (hub != null) {
             requests.add(hub);
         }
@@ -226,9 +228,8 @@ public final class MapCopyService {
         }
         for (EventMap map : mapSetupService.allMaps().stream()
                 .filter(map -> map.eventType() != EventType.BOAT_RACE)
-                .filter(map -> !isInDedicatedWorld(map))
                 .toList()) {
-            requests.add(mapRequest(map, defaultWorldName(map), true));
+            requests.add(mapRequest(map, defaultWorldName(map), true, true));
         }
         if (requests.isEmpty()) {
             plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, "no configured maps found"));
@@ -257,18 +258,40 @@ public final class MapCopyService {
         }
         World source = Bukkit.getWorld(request.region().worldName());
         if (source == null) {
-            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, request.label() + " source world is not loaded"));
-            Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
-            return;
+            source = Bukkit.createWorld(new WorldCreator(request.region().worldName()));
+            if (source == null) {
+                plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, request.label() + " source world is not loaded"));
+                Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
+                return;
+            }
+        }
+        if (request.requireUnusedWorld() && worldExists(request.worldName())) {
+            if (!request.archiveExistingWorld()) {
+                plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON,
+                        request.label() + " target world already exists: " + request.worldName()));
+                Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
+                return;
+            }
+            Optional<String> archiveName = archiveWorld(request.worldName());
+            if (archiveName.isEmpty()) {
+                plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON,
+                        request.label() + " target world could not be archived: " + request.worldName()));
+                Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
+                return;
+            }
+            if (source.getName().equalsIgnoreCase(request.worldName())) {
+                World archivedSource = Bukkit.createWorld(new WorldCreator(archiveName.get()));
+                if (archivedSource == null) {
+                    plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON,
+                            request.label() + " archived source world could not be loaded: " + archiveName.get()));
+                    Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
+                    return;
+                }
+                source = archivedSource;
+            }
         }
         if (source.getName().equalsIgnoreCase(request.worldName())) {
             plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON, request.label() + " target world matches the source world"));
-            Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
-            return;
-        }
-        if (request.requireUnusedWorld() && worldExists(request.worldName())) {
-            plugin.messages().send(sender, EXPORT_FAILED, java.util.Map.of(REASON,
-                    request.label() + " target world already exists: " + request.worldName()));
             Bukkit.getScheduler().runTask(plugin, () -> runNext(sender, requests));
             return;
         }
@@ -345,17 +368,27 @@ public final class MapCopyService {
     }
 
     private CopyRequest mapRequest(EventMap map, String worldName, boolean requireUnusedWorld) {
+        return mapRequest(map, worldName, requireUnusedWorld, false);
+    }
+
+    private CopyRequest mapRequest(EventMap map, String worldName, boolean requireUnusedWorld, boolean archiveExistingWorld) {
         return new CopyRequest(
                 map.eventType().name() + "/" + map.id(),
                 sanitizeWorldName(worldName),
                 map.region(),
                 true,
                 requireUnusedWorld,
+                archiveExistingWorld,
                 target -> mapSetupService.retargetWorld(map, target)
         );
     }
 
     private CopyRequest configuredAreaRequest(String label, String locationPath, String regionPath, String worldName) {
+        return configuredAreaRequest(label, locationPath, regionPath, worldName, false);
+    }
+
+    private CopyRequest configuredAreaRequest(String label, String locationPath, String regionPath,
+                                              String worldName, boolean archiveExistingWorld) {
         Location anchor = LocationCodec.decode(plugin.getConfig().getString(locationPath, ""));
         Location pos1 = LocationCodec.decode(plugin.getConfig().getString(regionPath + ".pos1", ""));
         Location pos2 = LocationCodec.decode(plugin.getConfig().getString(regionPath + ".pos2", ""));
@@ -369,7 +402,7 @@ public final class MapCopyService {
             plugin.getLogger().warning("Invalid " + label + " export region: " + ex.getMessage());
             return null;
         }
-        return new CopyRequest(label, sanitizeWorldName(worldName), region, true, true, target -> {
+        return new CopyRequest(label, sanitizeWorldName(worldName), region, true, true, archiveExistingWorld, target -> {
             plugin.getConfig().set(locationPath, LocationCodec.encode(reworld(anchor, target)));
             plugin.getConfig().set(regionPath + ".pos1", LocationCodec.encode(reworld(pos1, target)));
             plugin.getConfig().set(regionPath + ".pos2", LocationCodec.encode(reworld(pos2, target)));
@@ -478,6 +511,40 @@ public final class MapCopyService {
         return new File(Bukkit.getWorldContainer(), worldName).exists();
     }
 
+    private Optional<String> archiveWorld(String worldName) {
+        String sanitized = sanitizeWorldName(worldName);
+        World loaded = Bukkit.getWorld(sanitized);
+        if (loaded != null) {
+            if (!loaded.getPlayers().isEmpty() || !Bukkit.unloadWorld(loaded, true)) {
+                return Optional.empty();
+            }
+        }
+        File worldFolder = new File(Bukkit.getWorldContainer(), sanitized);
+        if (!worldFolder.exists()) {
+            return Optional.of(sanitized);
+        }
+        String archiveName = nextArchiveWorldName(sanitized);
+        File archiveFolder = new File(Bukkit.getWorldContainer(), archiveName);
+        try {
+            Files.move(worldFolder.toPath(), archiveFolder.toPath());
+        } catch (IOException ex) {
+            plugin.getLogger().warning("Could not archive world " + sanitized + ": " + ex.getMessage());
+            return Optional.empty();
+        }
+        return Optional.of(archiveName);
+    }
+
+    private String nextArchiveWorldName(String worldName) {
+        String baseName = sanitizeWorldName(worldName + "-archive-" + System.currentTimeMillis());
+        String candidate = baseName;
+        int suffix = 2;
+        while (worldExists(candidate)) {
+            candidate = baseName + "-" + suffix;
+            suffix++;
+        }
+        return candidate;
+    }
+
     private String sanitizeWorldName(String worldName) {
         String sanitized = Optional.ofNullable(worldName).orElse("")
                 .replaceAll("[^A-Za-z0-9_\\-]", "-")
@@ -503,7 +570,7 @@ public final class MapCopyService {
     }
 
     private record CopyRequest(String label, String worldName, CuboidRegion region, boolean voidWorld,
-                               boolean requireUnusedWorld, Consumer<World> onComplete) {
+                               boolean requireUnusedWorld, boolean archiveExistingWorld, Consumer<World> onComplete) {
     }
 
     private record MapWorldStatus(EventMap map, boolean dedicated) {
