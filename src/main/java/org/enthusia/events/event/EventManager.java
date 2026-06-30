@@ -551,6 +551,7 @@ public final class EventManager {
         if (boatRaceService != null) {
             boatRaceService.cleanupAll();
         }
+        broadcastEventResult(session);
         Location trophyRoom = session.trophyRoom();
         if (trophyRoom != null) {
             for (UUID uuid : allEventPlayers()) {
@@ -1243,14 +1244,6 @@ public final class EventManager {
         restoreAll(finished.participants());
         restoreAll(finished.spectators());
         resetRuntimeServices();
-        if (finished.finalRankings().isEmpty()) {
-            Bukkit.broadcastMessage(plugin.messages().format("event-ended-no-winner", Map.of("event", finished.definition().displayName())));
-        } else {
-            Bukkit.broadcastMessage(plugin.messages().format("event-ended", Map.of(
-                    "event", finished.definition().displayName(),
-                    "winners", winnerNames(finished.finalRankings())
-            )));
-        }
         session = null;
         playerVotes.clear();
         runtimeScoreboardValues.clear();
@@ -1322,6 +1315,17 @@ public final class EventManager {
                 plugin.messages().send(online, "event-winner-paid", Map.of("amount", String.valueOf(reward)));
             }
         }
+    }
+
+    private void broadcastEventResult(EventSession finished) {
+        if (finished.finalRankings().isEmpty()) {
+            Bukkit.broadcastMessage(plugin.messages().format("event-ended-no-winner", Map.of("event", finished.definition().displayName())));
+            return;
+        }
+        Bukkit.broadcastMessage(plugin.messages().format("event-ended", Map.of(
+                "event", finished.definition().displayName(),
+                "winners", winnerNames(finished.finalRankings())
+        )));
     }
 
     private String winnerNames(List<UUID> rankings) {

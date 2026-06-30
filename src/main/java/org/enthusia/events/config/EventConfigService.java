@@ -125,8 +125,8 @@ public final class EventConfigService {
             case SUMO_2V2 -> new EventSettings(Material.LEAD, "Team sumo. Stay on the platform and knock everyone else off.", 2, 4, 100.0D, 240L);
             case SUMO_FFA -> new EventSettings(Material.HONEY_BLOCK, "Free-for-all sumo. Last player on the platform wins.", 2, 4, 100.0D, 300L);
             case KNOCKBACK_FFA -> new EventSettings(Material.STICK, "Free-for-all knockback fight. Hit players out of the arena to win.", 2, 4, 100.0D, 300L);
-            case QUAKE -> new EventSettings(Material.GOLDEN_HOE, "Railgun free-for-all. Hit players with quake shots and be the last alive.", 2, 4, 100.0D, 300L);
-            case ONE_IN_THE_CHAMBER -> new EventSettings(Material.BOW, "One arrow can end a fight. Earn arrows by eliminating players.", 2, 4, 100.0D, 420L);
+            case QUAKE -> new EventSettings(Material.GOLDEN_HOE, "Railgun free-for-all. Hit players with quake shots and be the last alive.", 2, 4, 100.0D, 240L);
+            case ONE_IN_THE_CHAMBER -> new EventSettings(Material.BOW, "One arrow can end a fight. Earn arrows by eliminating players.", 2, 4, 100.0D, 300L);
             case CAPTURE_THE_FLAG -> new EventSettings(Material.WHITE_BANNER, "Steal the enemy flag and return to your own flag to capture it.", 2, 4, 100.0D, 600L);
             case CAPTURE_PLAYERS -> new EventSettings(Material.IRON_CHAIN, "Capture enemy players, defend your jail, and free your teammates.", 2, 4, 100.0D, 600L);
             case BLOCK_PARTY -> new EventSettings(Material.NOTE_BLOCK, "Stand on the called color before the timer locks each round.", 2, 4, 100.0D, 420L);

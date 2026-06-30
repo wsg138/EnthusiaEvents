@@ -186,6 +186,7 @@ public final class EventScoreboardService {
         String redScore = eventManager.runtimeScoreboardValue("ctf-score-red", eventManager.runtimeScoreboardValue("ctf-score-1", "0"));
         String blueScore = eventManager.runtimeScoreboardValue("ctf-score-blue", eventManager.runtimeScoreboardValue("ctf-score-2", "0"));
         String quakeScore = eventManager.runtimeScoreboardValue("quake-score-" + player.getUniqueId(), "0");
+        String oneInTheChamberScore = eventManager.runtimeScoreboardValue("oitc-score-" + player.getUniqueId(), "0");
         String captureRound = eventManager.runtimeScoreboardValue("capture-players-round", "1");
         String captureRedWins = eventManager.runtimeScoreboardValue("capture-players-round-win-red",
                 eventManager.runtimeScoreboardValue("capture-players-round-win-1", "0"));
@@ -196,21 +197,8 @@ public final class EventScoreboardService {
         String captureBlueJailed = eventManager.runtimeScoreboardValue("capture-players-jailed-blue",
                 eventManager.runtimeScoreboardValue("capture-players-jailed-2", "0"));
         int blank = 0;
-        // Build quake top 5
-        List<Map.Entry<UUID, String>> quakeSorted = new ArrayList<>();
-        for (UUID uuid : session.participants()) {
-            String score = eventManager.runtimeScoreboardValue("quake-score-" + uuid, "0");
-            if (!"0".equals(score)) {
-                quakeSorted.add(Map.entry(uuid, score));
-            }
-        }
-        quakeSorted.sort((a, b) -> Integer.compare(Integer.parseInt(b.getValue()), Integer.parseInt(a.getValue())));
-        String[] top5 = {"-", "-", "-", "-", "-"};
-        for (int i = 0; i < Math.min(5, quakeSorted.size()); i++) {
-            org.bukkit.OfflinePlayer p = Bukkit.getOfflinePlayer(quakeSorted.get(i).getKey());
-            String name = p.getName() == null ? "?" : p.getName();
-            top5[i] = name + ": " + quakeSorted.get(i).getValue();
-        }
+        String scorePrefix = type == EventType.ONE_IN_THE_CHAMBER ? "oitc-score-" : "quake-score-";
+        String[] top5 = topScores(session, scorePrefix);
         for (String configuredLine : template) {
             String line = configuredLine
                     .replace("{event}", session.definition().displayName())
@@ -226,6 +214,7 @@ public final class EventScoreboardService {
                     .replace("{redscore}", redScore)
                     .replace("{bluescore}", blueScore)
                     .replace("{score}", quakeScore)
+                    .replace("{oitc_score}", oneInTheChamberScore)
                     .replace("{capture_round}", captureRound)
                     .replace("{capture_red_wins}", captureRedWins)
                     .replace("{capture_blue_wins}", captureBlueWins)
@@ -245,6 +234,24 @@ public final class EventScoreboardService {
             }
         }
         return lines.stream().limit(14).toList();
+    }
+
+    private String[] topScores(EventSession session, String scorePrefix) {
+        List<Map.Entry<UUID, String>> sorted = new ArrayList<>();
+        for (UUID uuid : session.participants()) {
+            String score = eventManager.runtimeScoreboardValue(scorePrefix + uuid, "0");
+            if (!"0".equals(score)) {
+                sorted.add(Map.entry(uuid, score));
+            }
+        }
+        sorted.sort((a, b) -> Integer.compare(Integer.parseInt(b.getValue()), Integer.parseInt(a.getValue())));
+        String[] top5 = {"-", "-", "-", "-", "-"};
+        for (int i = 0; i < Math.min(5, sorted.size()); i++) {
+            org.bukkit.OfflinePlayer player = Bukkit.getOfflinePlayer(sorted.get(i).getKey());
+            String name = player.getName() == null ? "?" : player.getName();
+            top5[i] = name + ": " + sorted.get(i).getValue();
+        }
+        return top5;
     }
 
     private List<String> bedWarsLines(EventSession session, Player player) {
@@ -327,6 +334,22 @@ public final class EventScoreboardService {
                     "&8&m---------------",
                     "&e&lQuake",
                     "&7Time left: &e{timeleft}",
+                    "",
+                    "&7Top Players:",
+                    "&f{top1}",
+                    "&f{top2}",
+                    "&f{top3}",
+                    "&f{top4}",
+                    "&f{top5}",
+                    "",
+                    "&7Players: &f{players}",
+                    "&8{map}"
+            );
+            case ONE_IN_THE_CHAMBER -> List.of(
+                    "&8&m---------------",
+                    "&6&lOne in the Chamber",
+                    "&7Time left: &e{timeleft}",
+                    "&7Your Kills: &f{oitc_score}",
                     "",
                     "&7Top Players:",
                     "&f{top1}",
