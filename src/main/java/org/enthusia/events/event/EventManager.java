@@ -90,6 +90,7 @@ public final class EventManager {
     private BukkitTask activeTask;
     private BukkitTask preStartTask;
     private BukkitTask bracketTask;
+    private BukkitTask raceFinishTask;
     private int countdownRemaining;
     private int preStartRemaining;
     private int voteRemaining;
@@ -362,6 +363,7 @@ public final class EventManager {
         playerVotes.remove(player.getUniqueId());
         kitService.clearSelection(player.getUniqueId());
         cleanupBoatRacePlayer(player.getUniqueId());
+        restoreTemporaryEventAttributes(player);
         allowTeleport(player.getUniqueId());
         cleanupEventInventory(player);
         snapshotService.restore(player, false);
@@ -393,6 +395,8 @@ public final class EventManager {
         }
         if (session.participants().isEmpty()) {
             scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 60L);
+        } else if (session.definition().type() == EventType.ELYTRA_RACE && session.finalRankings().size() == 1) {
+            scheduleRaceFinishGrace();
         }
     }
 
@@ -404,6 +408,7 @@ public final class EventManager {
             return;
         }
         cleanupBoatRacePlayer(player.getUniqueId());
+        restoreTemporaryEventAttributes(player);
         session.spectators().add(player.getUniqueId());
         player.getInventory().clear();
         player.getInventory().setArmorContents(null);
@@ -550,6 +555,7 @@ public final class EventManager {
             for (UUID uuid : allEventPlayers()) {
                 Player player = Bukkit.getPlayer(uuid);
                 if (player != null) {
+                    restoreTemporaryEventAttributes(player);
                     player.setGameMode(GameMode.SURVIVAL);
                     player.setAllowFlight(false);
                     player.setFlying(false);
@@ -580,6 +586,7 @@ public final class EventManager {
         cancelTask();
         cancelActiveTask();
         cancelPreStartTask();
+        cancelRaceFinishTask();
         spawnLocked.clear();
         resetBracketState();
         phaseTask = Bukkit.getScheduler().runTaskLater(plugin, this::finishSession,
@@ -605,6 +612,7 @@ public final class EventManager {
         cancelTask();
         cancelActiveTask();
         cancelPreStartTask();
+        cancelRaceFinishTask();
         spawnLocked.clear();
         if (session != null) {
             restoreAll(session.participants());
@@ -986,6 +994,7 @@ public final class EventManager {
         session.phase(EventPhase.ACTIVE);
         clearCountdownExperience();
         playGoSound();
+        playGlobalEventStartSound();
         if ((session.definition().type() == EventType.BOAT_RACE || session.definition().type() == EventType.PARKOUR
                 || session.definition().type() == EventType.HORSE_RACE)
                 && boatRaceService != null) {
@@ -1055,6 +1064,18 @@ public final class EventManager {
             if (player != null) {
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 1.0F, 1.6F);
             }
+        }
+    }
+
+    private void playGlobalEventStartSound() {
+        if (session == null) {
+            return;
+        }
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (session.participants().contains(player.getUniqueId()) || session.spectators().contains(player.getUniqueId())) {
+                continue;
+            }
+            player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.75F, 1.1F);
         }
     }
 
@@ -1263,6 +1284,7 @@ public final class EventManager {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null) {
                 allowTeleport(uuid);
+                restoreTemporaryEventAttributes(player);
                 cleanupEventInventory(player);
                 snapshotService.restore(player, false);
                 restoreScoreboard(player);
@@ -1572,6 +1594,7 @@ public final class EventManager {
 
     private void resetBracketState() {
         cancelBracketTask();
+        cancelRaceFinishTask();
         bracketQueue.clear();
         bracketContestants.clear();
     }
@@ -1580,6 +1603,13 @@ public final class EventManager {
         if (bracketTask != null) {
             bracketTask.cancel();
             bracketTask = null;
+        }
+    }
+
+    private void cancelRaceFinishTask() {
+        if (raceFinishTask != null) {
+            raceFinishTask.cancel();
+            raceFinishTask = null;
         }
     }
 
@@ -1689,6 +1719,38 @@ public final class EventManager {
             default -> player.setGameMode(GameMode.SURVIVAL);
         }
         player.updateInventory();
+    }
+
+    private void scheduleRaceFinishGrace() {
+        if (raceFinishTask != null) {
+            return;
+        }
+        long seconds = plugin.getConfig().getLong("elytra-race.finish-grace-seconds", 120L);
+        if (seconds <= 0L) {
+            return;
+        }
+        raceFinishTask = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            synchronized (this) {
+                raceFinishTask = null;
+                if (session != null && session.phase() == EventPhase.ACTIVE
+                        && session.definition().type() == EventType.ELYTRA_RACE
+                        && !session.finalRankings().isEmpty()) {
+                    endActiveEvent(List.copyOf(session.finalRankings()));
+                }
+            }
+        }, seconds * 20L);
+    }
+
+    private void restoreTemporaryEventAttributes(Player player) {
+        if (session == null || session.definition().type() != EventType.ELYTRA_RACE) {
+            return;
+        }
+        if (player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null) {
+            player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(20.0D);
+        }
+        if (player.getHealth() > player.getMaxHealth()) {
+            player.setHealth(player.getMaxHealth());
+        }
     }
 
     private ItemStack namedItem(Material material, String name) {
