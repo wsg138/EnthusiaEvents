@@ -119,10 +119,10 @@ public final class EventConfigService {
             case SKYWARS -> new EventSettings(Material.FEATHER, "Loot island chests, bridge carefully, and be the last player alive.", 2, 2, 100.0D, 600L);
             case BEDWARS -> new EventSettings(Material.RED_BED, "Solo BedWars. Protect your bed, use island generators, and eliminate every other player.", 2, 2, 100.0D, 1200L);
             case FIGHT_1V1 -> new EventSettings(Material.IRON_SWORD, "A straight kit fight. Last player standing wins.", 2, 2, 100.0D, 300L);
-            case FIGHT_2V2 -> new EventSettings(Material.DIAMOND_SWORD, "Small-team kit combat. Survive the fight to win.", 2, 4, 100.0D, 420L);
+            case FIGHT_2V2 -> new EventSettings(Material.DIAMOND_SWORD, "Small-team kit combat. Survive the fight to win.", 4, 4, 100.0D, 420L);
             case FIGHT_FFA -> new EventSettings(Material.NETHERITE_SWORD, "Free-for-all kit combat. Last player alive wins.", 2, 4, 100.0D, 600L);
             case SUMO_1V1 -> new EventSettings(Material.SLIME_BALL, "Knock your opponent out of the arena without weapons or armor.", 2, 2, 100.0D, 180L);
-            case SUMO_2V2 -> new EventSettings(Material.LEAD, "Team sumo. Stay on the platform and knock everyone else off.", 2, 4, 100.0D, 240L);
+            case SUMO_2V2 -> new EventSettings(Material.LEAD, "Team sumo. Stay on the platform and knock everyone else off.", 4, 4, 100.0D, 240L);
             case SUMO_FFA -> new EventSettings(Material.HONEY_BLOCK, "Free-for-all sumo. Last player on the platform wins.", 2, 4, 100.0D, 300L);
             case KNOCKBACK_FFA -> new EventSettings(Material.STICK, "Free-for-all knockback fight. Hit players out of the arena to win.", 2, 4, 100.0D, 300L);
             case QUAKE -> new EventSettings(Material.GOLDEN_HOE, "Railgun free-for-all. Hit players with quake shots and be the last alive.", 2, 4, 100.0D, 240L);

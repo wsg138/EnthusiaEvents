@@ -84,7 +84,9 @@ public final class EventManager {
     private final Map<String, String> runtimeScoreboardValues = new ConcurrentHashMap<>();
     private final Set<UUID> spawnLocked = ConcurrentHashMap.newKeySet();
     private final Queue<UUID> bracketQueue = new ArrayDeque<>();
+    private final Queue<List<UUID>> bracketTeamQueue = new ArrayDeque<>();
     private final Set<UUID> bracketContestants = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, List<UUID>> bracketTeamByPlayer = new HashMap<>();
     private EventSession session;
     private BukkitTask phaseTask;
     private BukkitTask activeTask;
@@ -458,6 +460,10 @@ public final class EventManager {
 
     public boolean isBracketEvent() {
         return session != null && isBracketEvent(session.definition().type());
+    }
+
+    public boolean isTeamBracketEvent() {
+        return session != null && isTeamBracketEvent(session.definition().type());
     }
 
     public boolean restoreSnapshot(Player player) {
@@ -1488,6 +1494,10 @@ public final class EventManager {
         if (session == null || !isBracketEvent(session.definition().type()) || session.participants().size() < 2) {
             return;
         }
+        if (isTeamBracketEvent(session.definition().type())) {
+            prepareTeamBracketPreStart();
+            return;
+        }
         bracketQueue.clear();
         bracketContestants.clear();
         bracketQueue.addAll(session.participants());
@@ -1518,6 +1528,9 @@ public final class EventManager {
                 || !isBracketEvent(session.definition().type())
                 || !bracketContestants.contains(loser.getUniqueId())) {
             return false;
+        }
+        if (isTeamBracketEvent(session.definition().type())) {
+            return handleTeamBracketElimination(loser, reason);
         }
         UUID winnerId = bracketContestants.stream()
                 .filter(uuid -> !uuid.equals(loser.getUniqueId()) && session.participants().contains(uuid))
@@ -1562,6 +1575,10 @@ public final class EventManager {
         if (session == null || session.phase() != EventPhase.ACTIVE || !isBracketEvent(session.definition().type())) {
             return;
         }
+        if (isTeamBracketEvent(session.definition().type())) {
+            startNextTeamBracketMatch();
+            return;
+        }
         bracketQueue.removeIf(uuid -> !session.participants().contains(uuid) || Bukkit.getPlayer(uuid) == null);
         if (bracketQueue.size() <= 1) {
             UUID winner = bracketQueue.poll();
@@ -1602,15 +1619,167 @@ public final class EventManager {
         player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.9F, 1.4F);
     }
 
+    private void prepareTeamBracketPreStart() {
+        bracketTeamQueue.clear();
+        bracketContestants.clear();
+        bracketTeamByPlayer.clear();
+        List<UUID> players = session.participants().stream()
+                .filter(uuid -> Bukkit.getPlayer(uuid) != null)
+                .toList();
+        for (int index = 0; index < players.size(); index += 2) {
+            List<UUID> team = new ArrayList<>();
+            team.add(players.get(index));
+            if (index + 1 < players.size()) {
+                team.add(players.get(index + 1));
+            }
+            registerBracketTeam(team);
+            bracketTeamQueue.add(team);
+        }
+        startNextTeamBracketMatch();
+    }
+
+    private void startNextTeamBracketMatch() {
+        bracketTeamQueue.removeIf(team -> team.stream().noneMatch(uuid -> session.participants().contains(uuid) && Bukkit.getPlayer(uuid) != null));
+        if (bracketTeamQueue.size() <= 1) {
+            List<UUID> winners = bracketTeamQueue.poll();
+            endActiveEvent(winners == null ? List.of() : List.copyOf(winners));
+            return;
+        }
+        List<UUID> firstTeam = bracketTeamQueue.poll();
+        List<UUID> secondTeam = bracketTeamQueue.poll();
+        if (firstTeam == null || secondTeam == null) {
+            endActiveEvent(firstTeam == null ? List.of() : List.copyOf(firstTeam));
+            return;
+        }
+        bracketContestants.clear();
+        bracketContestants.addAll(firstTeam);
+        bracketContestants.addAll(secondTeam);
+        registerBracketTeam(firstTeam);
+        registerBracketTeam(secondTeam);
+        List<Map.Entry<String, Location>> spawns = session.selectedMap() == null
+                ? List.of()
+                : List.copyOf(session.selectedMap().spawns().entrySet());
+        prepareBracketTeam(firstTeam, spawns, 0);
+        prepareBracketTeam(secondTeam, spawns, 1);
+        prepareWaitingBracketPlayers();
+        messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW
+                + teamNames(firstTeam) + " vs " + teamNames(secondTeam) + ".");
+    }
+
+    private boolean handleTeamBracketElimination(Player loser, String reason) {
+        List<UUID> losingTeam = bracketTeamByPlayer.getOrDefault(loser.getUniqueId(), List.of(loser.getUniqueId()));
+        session.participants().remove(loser.getUniqueId());
+        session.spectators().add(loser.getUniqueId());
+        loser.getInventory().clear();
+        loser.getInventory().setArmorContents(null);
+        loser.getInventory().setItemInOffHand(null);
+        loser.setGameMode(GameMode.SPECTATOR);
+        plugin.messages().send(loser, "event-eliminated", Map.of("reason", reason));
+
+        boolean teammateAlive = losingTeam.stream()
+                .filter(uuid -> !uuid.equals(loser.getUniqueId()))
+                .anyMatch(uuid -> bracketContestants.contains(uuid) && session.participants().contains(uuid));
+        if (teammateAlive) {
+            return true;
+        }
+
+        List<UUID> winningTeam = bracketContestants.stream()
+                .filter(uuid -> !losingTeam.contains(uuid))
+                .map(uuid -> bracketTeamByPlayer.getOrDefault(uuid, List.of(uuid)))
+                .findFirst()
+                .orElse(List.of());
+        bracketContestants.clear();
+        List<UUID> onlineWinners = winningTeam.stream()
+                .filter(uuid -> Bukkit.getPlayer(uuid) != null)
+                .toList();
+        if (!onlineWinners.isEmpty()) {
+            registerBracketTeam(onlineWinners);
+            bracketTeamQueue.add(new ArrayList<>(onlineWinners));
+            for (UUID uuid : onlineWinners) {
+                Player winner = Bukkit.getPlayer(uuid);
+                if (winner == null) {
+                    continue;
+                }
+                session.participants().add(uuid);
+                session.spectators().remove(uuid);
+                winner.setHealth(winner.getMaxHealth());
+                winner.setFoodLevel(20);
+                winner.setFireTicks(0);
+                winner.setGameMode(GameMode.SPECTATOR);
+                spawnLocked.remove(uuid);
+            }
+            messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.GREEN
+                    + teamNames(onlineWinners) + " won the bracket match.");
+        }
+        scheduleNextBracketMatch();
+        return true;
+    }
+
+    private void prepareBracketTeam(List<UUID> team, List<Map.Entry<String, Location>> spawns, int teamIndex) {
+        for (int offset = 0; offset < team.size(); offset++) {
+            UUID uuid = team.get(offset);
+            Location spawn = bracketTeamSpawn(spawns, teamIndex, offset);
+            prepareBracketPlayer(uuid, spawn, teamIndex);
+            session.participants().add(uuid);
+            session.spectators().remove(uuid);
+        }
+    }
+
+    private Location bracketTeamSpawn(List<Map.Entry<String, Location>> spawns, int teamIndex, int offset) {
+        if (spawns.isEmpty()) {
+            return null;
+        }
+        int index = Math.min(spawns.size() - 1, (teamIndex * 2) + offset);
+        return spawns.get(index).getValue();
+    }
+
+    private void prepareWaitingBracketPlayers() {
+        for (UUID uuid : session.participants()) {
+            if (bracketContestants.contains(uuid)) {
+                continue;
+            }
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null) {
+                spawnLocked.remove(uuid);
+                player.setGameMode(GameMode.SPECTATOR);
+                player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GRAY
+                        + "You are waiting for your bracket match.");
+            }
+        }
+    }
+
+    private void registerBracketTeam(List<UUID> team) {
+        List<UUID> copy = List.copyOf(team);
+        for (UUID uuid : copy) {
+            bracketTeamByPlayer.put(uuid, copy);
+        }
+    }
+
+    private String teamNames(List<UUID> team) {
+        return team.stream()
+                .map(Bukkit::getOfflinePlayer)
+                .map(player -> player.getName() == null ? "?" : player.getName())
+                .collect(Collectors.joining(" + "));
+    }
+
     private boolean isBracketEvent(EventType type) {
-        return type == EventType.FIGHT_1V1 || type == EventType.SUMO_1V1;
+        return type == EventType.FIGHT_1V1
+                || type == EventType.SUMO_1V1
+                || type == EventType.FIGHT_2V2
+                || type == EventType.SUMO_2V2;
+    }
+
+    private boolean isTeamBracketEvent(EventType type) {
+        return type == EventType.FIGHT_2V2 || type == EventType.SUMO_2V2;
     }
 
     private void resetBracketState() {
         cancelBracketTask();
         cancelRaceFinishTask();
         bracketQueue.clear();
+        bracketTeamQueue.clear();
         bracketContestants.clear();
+        bracketTeamByPlayer.clear();
     }
 
     private void cancelBracketTask() {

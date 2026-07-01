@@ -802,6 +802,13 @@ public final class EventGameplayListener implements Listener {
             event.setCancelled(true);
             return;
         }
+        if (eventManager.isTeamBracketEvent()
+                && damagePlayer != null
+                && event.getEntity() instanceof Player target
+                && sameTeam(session, target, damagePlayer)) {
+            event.setCancelled(true);
+            return;
+        }
         if (type == EventType.QUAKE && event.getEntity() instanceof Player) {
             event.setCancelled(true);
             return;
