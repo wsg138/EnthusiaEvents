@@ -398,47 +398,6 @@ public final class EventManager {
         return "Active: " + active + " | Autostart: " + auto + " | Disabled: " + disabled;
     }
 
-    public boolean startQuickTest(Player player, EventType type) {
-        if (session != null) {
-            return false;
-        }
-        EventDefinition definition = registry.definition(type);
-        if (definition == null) {
-            return false;
-        }
-        List<EventMap> maps = mapSetupService.usableMapsFor(type);
-        if (maps.isEmpty()) {
-            return false;
-        }
-        EventMap map = maps.get(ThreadLocalRandom.current().nextInt(maps.size()));
-        if (snapshotService.hasUnrestoredSnapshot(player.getUniqueId())) {
-            plugin.messages().send(player, "event-join-blocked-unrestored");
-            return false;
-        }
-        resetRuntimeServices();
-        runtimeScoreboardValues.clear();
-        session = new EventSession(definition, EventPhase.ACTIVE);
-        session.adminStarted(true);
-        session.waitingHub(configuredLocation("locations.waiting-hub"));
-        session.trophyRoom(configuredLocation("locations.trophy-room"));
-        session.selectedMap(map);
-        if (!snapshotService.capture(player)) {
-            session = null;
-            plugin.messages().send(player, "event-join-blocked-unrestored");
-            return false;
-        }
-        session.participants().add(player.getUniqueId());
-        markEventPlayer(player);
-        prepareActivePlayer(player, type);
-        Map.Entry<String, Location> spawnEntry = map.spawns().isEmpty() ? null : map.spawns().entrySet().iterator().next();
-        Location spawn = spawnEntry == null ? player.getLocation() : spawnEntry.getValue();
-        session.teams().put(player.getUniqueId(), teamFromSpawnKey(spawnEntry == null ? "" : spawnEntry.getKey(), 0));
-        allowTeleport(player.getUniqueId());
-        TeleportService.teleport(plugin, player, spawn, "quick test spawn");
-        statsService.recordParticipation(player.getUniqueId(), type);
-        return true;
-    }
-
     public boolean join(Player player) {
         if (session == null || (session.phase() != EventPhase.VOTE
                 && session.phase() != EventPhase.JOIN

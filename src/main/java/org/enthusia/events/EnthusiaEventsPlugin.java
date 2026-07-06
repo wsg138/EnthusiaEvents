@@ -5,7 +5,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.enthusia.events.command.AdminCommand;
-import org.enthusia.events.command.SetupCommand;
 import org.enthusia.events.audit.EventSpecAuditRegistry;
 import org.enthusia.events.chat.ChatEventService;
 import org.enthusia.events.config.ConfigUpdater;
@@ -126,10 +125,6 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         getCommand("event").setTabCompleter(unifiedCommand);
         getCommand("ee").setExecutor(unifiedCommand);
         getCommand("ee").setTabCompleter(unifiedCommand);
-
-        SetupCommand setupCommand = new SetupCommand(this, mapSetupService, setupWizard);
-        getCommand("setup").setExecutor(setupCommand);
-        getCommand("setup").setTabCompleter(setupCommand);
 
         new ExternalPluginIntegrationService(this, eventManager).register();
         Bukkit.getPluginManager().registerEvents(new ParticipantListener(eventManager, voteGui, restoreConfirmGui, skinCache), this);

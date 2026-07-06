@@ -21,7 +21,6 @@ import org.enthusia.events.kit.EventKitService;
 import org.enthusia.events.setup.SetupSession;
 import org.enthusia.events.setup.SetupTool;
 import org.enthusia.events.setup.SetupWizard;
-import org.enthusia.events.util.LocationCodec;
 import org.enthusia.events.util.TeleportService;
 
 import java.util.ArrayList;
@@ -139,25 +138,6 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 eventManager.stop("admin-force");
                 plugin.messages().send(sender, "force-stopped");
             }
-            case "quicktest" -> {
-                if (!(sender instanceof Player player) || args.length < 2) {
-                    if (!(sender instanceof Player)) {
-                        plugin.messages().send(sender, "player-only");
-                        return true;
-                    }
-                    sender.sendMessage("/ee quicktest <PARKOUR|SPLEEF>");
-                    return true;
-                }
-                EventType type = parseEvent(sender, args[1]);
-                if (type == null) {
-                    return true;
-                }
-                if (eventManager.startQuickTest(player, type)) {
-                    plugin.messages().send(sender, "quick-test-started", Map.of("event", type.name()));
-                } else {
-                    plugin.messages().send(sender, "quick-test-failed", Map.of("event", type.name()));
-                }
-            }
             case "eventtp", "eventteleport" -> {
                 return handleEventTeleportCommand(sender, args);
             }
@@ -241,54 +221,6 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 plugin.resetLootConfig();
                 plugin.messages().send(sender, "loot-reset-done");
             }
-            case "sethub" -> {
-                if (!(sender instanceof Player player)) {
-                    plugin.messages().send(sender, "player-only");
-                    return true;
-                }
-                plugin.getConfig().set("locations.waiting-hub", LocationCodec.encode(player.getLocation()));
-                plugin.saveConfig();
-                plugin.messages().send(sender, "setup-saved", Map.of("target", "waiting hub"));
-            }
-            case "settrophy" -> {
-                if (!(sender instanceof Player player)) {
-                    plugin.messages().send(sender, "player-only");
-                    return true;
-                }
-                plugin.getConfig().set("locations.trophy-room", LocationCodec.encode(player.getLocation()));
-                plugin.saveConfig();
-                plugin.messages().send(sender, "setup-saved", Map.of("target", "trophy room"));
-            }
-            case "quicksetup" -> {
-                if (!(sender instanceof Player player) || args.length < 3) {
-                    if (!(sender instanceof Player)) {
-                        plugin.messages().send(sender, "player-only");
-                        return true;
-                    }
-                    sender.sendMessage("/ee quicksetup <PARKOUR|SPLEEF> <mapId> [radius]");
-                    return true;
-                }
-                EventType type = parseEvent(sender, args[1]);
-                if (type == null) {
-                    return true;
-                }
-                int radius;
-                try {
-                    radius = args.length >= 4 ? Integer.parseInt(args[3]) : 96;
-                } catch (NumberFormatException ex) {
-                    plugin.messages().send(sender, "invalid-number", Map.of("value", args[3]));
-                    return true;
-                }
-                mapSetupService.quickSetup(type, args[2], player.getLocation(), radius);
-                if (plugin.getConfig().getString("locations.waiting-hub", "").isBlank()) {
-                    plugin.getConfig().set("locations.waiting-hub", LocationCodec.encode(player.getLocation()));
-                }
-                if (plugin.getConfig().getString("locations.trophy-room", "").isBlank()) {
-                    plugin.getConfig().set("locations.trophy-room", LocationCodec.encode(player.getLocation()));
-                }
-                plugin.saveConfig();
-                plugin.messages().send(sender, "quick-setup-done", Map.of("event", type.name(), "map", args[2]));
-            }
             case "setup" -> {
                 return handleSetupCommand(sender, args);
             }
@@ -305,7 +237,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(args[0], List.of("autostart", "disable", "enable", "enabled", "disabled", "status", "private", "invite", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "eventtp", "stop", "restore", "stuckcheck", "emergencyrestore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
+            return filter(args[0], List.of("autostart", "disable", "enable", "enabled", "disabled", "status", "private", "invite", "forcestart", "simulatevote", "advance", "forcestop", "eventtp", "stop", "restore", "stuckcheck", "emergencyrestore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "map", "setup"));
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("disable")
                 || args[0].equalsIgnoreCase("enable")
@@ -333,9 +265,6 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2 && args[0].equalsIgnoreCase("forcestart")) {
             return filter(args[1], List.of(EventType.values()).stream().map(Enum::name).toList());
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("quicktest")) {
-            return filter(args[1], List.of(EventType.PARKOUR, EventType.SPLEEF).stream().map(Enum::name).toList());
-        }
         if (args.length == 2 && (args[0].equalsIgnoreCase("eventtp") || args[0].equalsIgnoreCase("eventteleport"))) {
             return filter(args[1], List.of(EventType.values()).stream().map(Enum::name).toList());
         }
@@ -344,9 +273,6 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             if (type != null) {
                 return filter(args[2], mapSetupService.mapsFor(type).stream().map(EventMap::id).toList());
             }
-        }
-        if (args.length == 2 && args[0].equalsIgnoreCase("quicksetup")) {
-            return filter(args[1], List.of(EventType.PARKOUR, EventType.SPLEEF).stream().map(Enum::name).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("setup")) {
             List<String> values = new ArrayList<>();

@@ -279,6 +279,9 @@ public final class EventGameplayListener implements Listener {
             handleRedLightGreenLightMove(event.getPlayer(), map, event.getTo());
             return;
         }
+        if (type == EventType.BOAT_RACE) {
+            return;
+        }
         if (isRaceType(type)) {
             handleRaceMove(session, map, event.getPlayer(), event.getTo());
             return;
