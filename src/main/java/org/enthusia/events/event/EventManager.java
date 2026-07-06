@@ -461,6 +461,7 @@ public final class EventManager {
             plugin.messages().send(player, "event-join-blocked-unrestored");
             return true;
         }
+        healForEvent(player);
         session.participants().add(player.getUniqueId());
         markEventPlayer(player);
         player.closeInventory();
@@ -783,7 +784,7 @@ public final class EventManager {
                 Player player = Bukkit.getPlayer(uuid);
                 if (player != null) {
                     restoreTemporaryEventAttributes(player);
-                    cleanupTrophyInventory(player, session.definition().type());
+                    prepareTrophyPlayer(player);
                     player.setGameMode(GameMode.SURVIVAL);
                     player.setAllowFlight(false);
                     player.setFlying(false);
@@ -2190,8 +2191,7 @@ public final class EventManager {
         player.getInventory().setItemInOffHand(null);
         player.setAllowFlight(false);
         player.setFlying(false);
-        player.setFoodLevel(20);
-        player.setSaturation(10.0F);
+        healForEvent(player);
         switch (type) {
             case PARKOUR, BLOCK_PARTY, HOT_POTATO, RED_LIGHT_GREEN_LIGHT -> player.setGameMode(GameMode.ADVENTURE);
             case CAPTURE_PLAYERS -> {
@@ -2476,13 +2476,24 @@ public final class EventManager {
         player.updateInventory();
     }
 
-    private void cleanupTrophyInventory(Player player, EventType type) {
-        if (type == EventType.QUAKE) {
-            player.getInventory().clear();
-            player.getInventory().setArmorContents(null);
-            player.getInventory().setItemInOffHand(null);
-            player.updateInventory();
+    private void healForEvent(Player player) {
+        player.setFoodLevel(20);
+        player.setSaturation(10.0F);
+        player.setExhaustion(0.0F);
+        player.setFireTicks(0);
+        player.setHealth(player.getMaxHealth());
+    }
+
+    private void prepareTrophyPlayer(Player player) {
+        AttributeInstance attribute = player.getAttribute(Attribute.MAX_HEALTH);
+        if (attribute != null) {
+            attribute.setBaseValue(20.0D);
         }
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(null);
+        player.getInventory().setItemInOffHand(null);
+        healForEvent(player);
+        player.updateInventory();
     }
 
     private void restoreScoreboard(Player player) {

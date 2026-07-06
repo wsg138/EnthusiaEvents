@@ -16,6 +16,10 @@ Use this for the final player test before moving from the test server to the liv
 - [ ] `/ee reload` is blocked while any event session is active.
 - [ ] Plugin disable/restart during an event does not mark snapshots restored unless the player inventory/location/state actually restored.
 - [ ] Event force stop, not-enough-players cancel, normal finish, leave, relog restore, and failed start all clear runtime state without leaving event items, vehicles, glowing, potions, XP countdown, or spectator mode behind.
+- [ ] Joining an event heals the player in the waiting hub, but leaving/restoring returns them to the health they had before joining.
+- [ ] Players are fully healed before the active phase starts.
+- [ ] Trophy room entry clears event items for every event and shows normal 10-heart health before final restore.
+- [ ] `/ee eventtp <EVENT> [mapId]` teleports staff to a configured event map without starting the event.
 - [ ] `/ee autostart status` shows automatic event starts are disabled by default.
 - [ ] `/ee autostart on` enables automatic hourly event votes.
 - [ ] `/ee autostart off` disables automatic hourly event votes again.
@@ -69,7 +73,7 @@ Use this for the final player test before moving from the test server to the liv
 - [ ] Block Party: floor is ready before teleport, movement works during prestart, eliminations only happen below the floor, floor resets after event.
 - [ ] Quake: shoot/boost work, no fall damage, player respawns after death, no hoe dropping, no event items after trophy.
 - [ ] OITC: bow/arrow/axe work, axe respects cooldown, death is handled by event respawn, no fall damage or hunger.
-- [ ] Splegg: shovel launches snowballs, 4-tick shot limit works, players cannot hit each other, broken blocks reset after event.
+- [ ] Splegg: shovel launches snowballs, 2-tick shot limit works, players cannot hit each other, broken blocks reset after event.
 - [ ] Red Light Green Light: yellow timing is playable, finish line records finishers, event respects timer.
 
 ## Live Server Migration Plan

@@ -158,6 +158,9 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                     plugin.messages().send(sender, "quick-test-failed", Map.of("event", type.name()));
                 }
             }
+            case "eventtp", "eventteleport" -> {
+                return handleEventTeleportCommand(sender, args);
+            }
             case "stop" -> {
                 eventManager.stop("admin");
                 plugin.messages().send(sender, "admin-stop");
@@ -302,7 +305,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(args[0], List.of("autostart", "disable", "enable", "enabled", "disabled", "status", "private", "invite", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "stuckcheck", "emergencyrestore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
+            return filter(args[0], List.of("autostart", "disable", "enable", "enabled", "disabled", "status", "private", "invite", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "eventtp", "stop", "restore", "stuckcheck", "emergencyrestore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("disable")
                 || args[0].equalsIgnoreCase("enable")
@@ -332,6 +335,15 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("quicktest")) {
             return filter(args[1], List.of(EventType.PARKOUR, EventType.SPLEEF).stream().map(Enum::name).toList());
+        }
+        if (args.length == 2 && (args[0].equalsIgnoreCase("eventtp") || args[0].equalsIgnoreCase("eventteleport"))) {
+            return filter(args[1], List.of(EventType.values()).stream().map(Enum::name).toList());
+        }
+        if (args.length == 3 && (args[0].equalsIgnoreCase("eventtp") || args[0].equalsIgnoreCase("eventteleport"))) {
+            EventType type = parseEventSilently(args[1]);
+            if (type != null) {
+                return filter(args[2], mapSetupService.mapsFor(type).stream().map(EventMap::id).toList());
+            }
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("quicksetup")) {
             return filter(args[1], List.of(EventType.PARKOUR, EventType.SPLEEF).stream().map(Enum::name).toList());
@@ -434,6 +446,36 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 "event", type.name(),
                 "players", invited.isEmpty() ? "none yet" : invited.stream().map(Player::getName).collect(Collectors.joining(", "))
         ));
+        return true;
+    }
+
+    private boolean handleEventTeleportCommand(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            plugin.messages().send(sender, "player-only");
+            return true;
+        }
+        if (args.length < 2) {
+            sender.sendMessage("/ee eventtp <EVENT> [mapId]");
+            return true;
+        }
+        EventType type = parseEvent(sender, args[1]);
+        if (type == null) {
+            return true;
+        }
+        Optional<EventMap> map = args.length >= 3
+                ? mapSetupService.find(type, args[2])
+                : mapSetupService.mapsFor(type).stream().findFirst();
+        if (map.isEmpty()) {
+            plugin.messages().send(sender, "setup-failed", Map.of("reason", "map not found"));
+            return true;
+        }
+        Location target = mapTeleportLocation(map.get());
+        if (target == null) {
+            plugin.messages().send(sender, "setup-failed", Map.of("reason", "map has no loaded world or usable location"));
+            return true;
+        }
+        TeleportService.teleport(plugin, player, target, "admin event map teleport");
+        plugin.messages().send(sender, "setup-saved", Map.of("target", "teleport to " + type.name() + " map " + map.get().id()));
         return true;
     }
 

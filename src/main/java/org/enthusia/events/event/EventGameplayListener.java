@@ -2055,7 +2055,7 @@ public final class EventGameplayListener implements Listener {
     private void launchSpleggSnowball(Player player) {
         int tick = player.getTicksLived();
         Integer lastTick = spleggLastShotTicks.put(player.getUniqueId(), tick);
-        if (lastTick != null && tick - lastTick < 4) {
+        if (lastTick != null && tick - lastTick < 2) {
             return;
         }
         Snowball snowball = player.launchProjectile(Snowball.class);
