@@ -1,52 +1,83 @@
-# Testing Checklist
+# EnthusiaEvents Final Test Checklist
 
-## Capture Players
+Use this for the final player test before moving from the test server to the live server.
 
-- [ ] Configure per-team `capture-zone`, `jail-zone`, and `free-zone` areas in setup and confirm save validation blocks missing team areas.
-- [ ] Confirm players spawn with the Capture Players kit: team-colored leather helmet, diamond chestplate, iron leggings, diamond boots, netherite sword, axe, shield, golden apples, and steak.
-- [ ] Confirm a lethal hit captures the victim onto the killer's head instead of jailing them immediately.
-- [ ] Confirm a carrier can stack multiple captured enemies by getting multiple lethal kills.
-- [ ] Confirm killing a carrier frees captured enemies back to their spawn.
-- [ ] Confirm killing a rescuer sends the rescued teammate back to the original jail.
-- [ ] Confirm walking a captured enemy into your team's `capture-zone` sends that enemy into your team's `jail-zone`.
-- [ ] Confirm jailed players cannot leave jail and are teleported back inside if they try.
-- [ ] Confirm an empty-headed teammate can stand in the enemy `free-zone` for 5 seconds and pick up exactly one jailed teammate.
-- [ ] Confirm a rescuer carrying a teammate can return them to their own `capture-zone` and respawn that teammate.
-- [ ] Confirm round wins increment when a team jails all opponents.
-- [ ] Confirm the event resets players correctly between rounds.
-- [ ] Confirm the event ends when one team reaches 3 round wins.
-- [ ] Confirm the scoreboard shows round number, red/blue round wins, and jailed counts correctly.
-- [ ] Confirm timer expiry awards the match to the team with more round wins, or no winner on a tie.
+## Latest Fixes To Test
 
-## Combat
+- [ ] `/ee autostart status` shows automatic event starts are disabled by default.
+- [ ] `/ee autostart on` enables automatic hourly event votes.
+- [ ] `/ee autostart off` disables automatic hourly event votes again.
+- [ ] With autostart off, wait across an hourly vote time and confirm no automatic vote starts.
+- [ ] `/ee disable <EVENT>` prevents that event from appearing in `/event start`, random votes, automatic votes, `/ee forcestart`, and `/ee private`.
+- [ ] `/ee enable <EVENT>` restores that event to starts/votes.
+- [ ] `/ee disabled` lists disabled events clearly.
+- [ ] `/ee private <EVENT> <player...>` starts a private event without global chat announcements.
+- [ ] Invited players can join the private event with `/event join`.
+- [ ] A non-invited player cannot join or spectate a private event.
+- [ ] Private event countdowns, start messages, cancelled messages, and winner messages are only visible to invited/event players.
+- [ ] Private event start sound does not play globally.
+- [ ] `Fight 2v2` runs as a 2v2 bracket: only two teams fight at a time and waiting teams are spectators.
+- [ ] `Sumo 2v2` runs as a 2v2 bracket: only two teams fight at a time and waiting teams are spectators.
+- [ ] 2v2 friendly fire is blocked.
+- [ ] 2v2 winners advance as a team after both opponents are eliminated.
+- [ ] OITC scoreboard shows top players and your kills.
+- [ ] Quake lasts about 4 minutes.
+- [ ] OITC lasts about 5 minutes.
+- [ ] Winner/no-winner message appears when players enter the trophy room, not after trophy cleanup.
 
-- [ ] Confirm CTF flags can be captured, dropped, returned, and scored correctly.
-- [ ] Confirm Fight and Sumo brackets run two players at a time.
-- [ ] Confirm Fight kit voting items appear for 1v1, 2v2, and FFA.
+## Core Regression Test
 
-## BedWars
+- [ ] `/event join`, `/event leave`, `/event vote`, `/event start`, `/event stats`, `/event next` still work.
+- [ ] `/ee forcestart <EVENT>` still works for enabled events.
+- [ ] `/ee forcestop` restores players and clears event items.
+- [ ] `/ee retryrestores` works for players with pending snapshots.
+- [ ] Players keep their pre-event inventory, armor, health, food, location, game mode, and scoreboard after event end/leave/relog restore.
+- [ ] Players cannot keep event-only items after trophy room or restore.
+- [ ] Players cannot drop kit/vote/event items in hubs or active event modes where drops are blocked.
+- [ ] Players cannot place/break blocks in the hub, trophy room, or protected event maps unless they are allowed/admin.
+- [ ] Spectators cannot teleport to players with the spectator teleport menu.
+- [ ] Blocked commands still include `/withdraw` and `/deposit` during events.
+- [ ] CombatX/newbie protection and NotBounties do not affect event combat/rewards.
 
-- [ ] Confirm the Solo-style item shop layout, page switching, prices, and purchase sounds.
-- [ ] Confirm permanent armor and team upgrades persist after respawning.
-- [ ] Confirm Sharpness, Protection, Haste, Forge, Heal Pool, and traps work.
-- [ ] Confirm killers receive the victim's iron, gold, diamonds, and emeralds.
-- [ ] Confirm dropped items and container contents are cleared when the event resets.
+## Event Smoke Tests
 
-## Races
+- [ ] Capture the Flag: flags render, particles follow, slowness applies, captures require own flag home, and final capture waits before ending.
+- [ ] Capture Players: capture, jail, free-zone rescue, head riding, no crouch dismount, and 3-round win all work.
+- [ ] BedWars: shops spawn, team kills are blocked, hunger is blocked, item durability does not decrease, beds control respawns/final deaths.
+- [ ] SkyWars: chests are locked during prestart, ender pearls work, last-player end is quick, glow starts after 5 minutes.
+- [ ] Boat Race: players spawn in boats, boats have no collisions, finish line only finishes at the actual finish/checkpoint route.
+- [ ] Horse Race: players spawn on saddled horses, checkpoints count while mounted, falling below recovery height returns them.
+- [ ] Elytra Race: checkpoint item works, death returns to last checkpoint, health is restored after event, first finisher does not instantly end the race.
+- [ ] Block Party: floor is ready before teleport, movement works during prestart, eliminations only happen below the floor, floor resets after event.
+- [ ] Quake: shoot/boost work, no fall damage, player respawns after death, no hoe dropping, no event items after trophy.
+- [ ] OITC: bow/arrow/axe work, axe respects cooldown, death is handled by event respawn, no fall damage or hunger.
+- [ ] Splegg: shovel launches snowballs, 4-tick shot limit works, players cannot hit each other, broken blocks reset after event.
+- [ ] Red Light Green Light: yellow timing is playable, finish line records finishers, event respects timer.
 
-- [ ] Confirm Boat Race boats do not collide.
-- [ ] Confirm Elytra players cannot finish without completing every checkpoint.
-- [ ] Confirm Elytra checkpoint setup still works end to end on the live map.
+## Live Server Migration Plan
 
-## Red Light Green Light
+- [ ] Back up the live server before copying anything.
+- [ ] Stop the live server or at least stop event activity before copying plugin files/worlds/configs.
+- [ ] Copy the new EnthusiaEvents jar to the live server plugins folder.
+- [ ] Copy EnthusiaEvents config folders/files that define maps, kits, loot, scoreboards, and event settings.
+- [ ] Copy exported event worlds from the test server to the live server world folder.
+- [ ] Confirm the copied worlds keep the same names referenced in `maps.yml`.
+- [ ] Copy hub and trophy worlds/config if they were exported separately.
+- [ ] Install or configure required dependencies on live: Vault/economy, PlaceholderAPI if used, Multiverse/world loader if used, CombatX/CombatLogX, NotBounties, OldCombatMechanics.
+- [ ] Configure OldCombatMechanics for BedWars worlds, for example `Events-BedWars: [ "old" ]` or numbered worlds like `Events-BedWars-1`.
+- [ ] Start the live server with `schedule.enabled: false`.
+- [ ] Run `/ee reload`.
+- [ ] Run `/ee disabled` and confirm any risky events are disabled before release.
+- [ ] Run `/ee autostart status` and confirm automatic starts are disabled.
+- [ ] Run private tests on live with `/ee private <EVENT> <staff...>`.
+- [ ] Test one public forced event with staff only if needed.
+- [ ] When ready to release, run `/ee autostart on`.
 
-- [ ] Confirm setup can save both the light display and a separate finish-line area.
-- [ ] Confirm moving on red eliminates the player.
-- [ ] Confirm crossing the finish line on green records the player as finished.
-- [ ] Confirm first place remains the winner while other players can continue finishing.
-- [ ] Confirm the event ends when everyone finishes or when the timer expires.
+## Release Gate
 
-## Plugins
-
-- [ ] Confirm Newbie protection does not block event PvP.
-- [ ] Confirm NotBounties does not award event bounties.
+- [ ] No player is stuck in an event world, spectator mode, or event scoreboard after leaving/relogging.
+- [ ] No event item can be carried back to survival.
+- [ ] No known dupes from death, disconnect, trophy room, leave, or forced stop.
+- [ ] No disabled event can be started by vote, GUI, command, queue, or automatic scheduler.
+- [ ] Private events do not leak global messages.
+- [ ] Auto-start remains off until the exact release moment.

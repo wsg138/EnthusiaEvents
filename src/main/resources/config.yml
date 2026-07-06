@@ -1,4 +1,5 @@
 schedule:
+  enabled: false
   hourly-vote-second: 0
   chat-event-minutes: [15, 30, 45]
   vote-phase-seconds: 60
@@ -94,6 +95,7 @@ events:
     - HORSE_RACE
     - ELYTRA_RACE
     - PARKOUR
+  disabled: []
 
 stats:
   save-on-change: true

@@ -23,8 +23,10 @@ public final class EventSession {
     private EventMap activeMap;
     private String starterName;
     private boolean startedByAdmin;
+    private boolean privateSession;
     private final Map<UUID, String> playerTeams = new LinkedHashMap<>();
     private final List<UUID> rankings = new ArrayList<>();
+    private final Set<UUID> invitedPlayers = new LinkedHashSet<>();
 
     public EventSession(EventDefinition definition, EventPhase phase) {
         this.currentDefinition = definition;
@@ -97,6 +99,18 @@ public final class EventSession {
 
     public void adminStarted(boolean adminStarted) {
         this.startedByAdmin = adminStarted;
+    }
+
+    public boolean privateSession() {
+        return privateSession;
+    }
+
+    public void privateSession(boolean privateSession) {
+        this.privateSession = privateSession;
+    }
+
+    public Set<UUID> invitedPlayers() {
+        return invitedPlayers;
     }
 
     public Map<UUID, String> teams() {

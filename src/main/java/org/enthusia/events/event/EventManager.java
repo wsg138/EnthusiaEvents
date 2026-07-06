@@ -123,6 +123,7 @@ public final class EventManager {
 
     public List<EventDefinition> availableStartChoices() {
         return registry.all().stream()
+                .filter(definition -> !isEventDisabled(definition.type()))
                 .filter(definition -> !mapSetupService.usableMapsFor(definition.type()).isEmpty())
                 .toList();
     }
@@ -133,6 +134,9 @@ public final class EventManager {
 
     public boolean startScheduledVote() {
         if (session != null) {
+            if (session.privateSession()) {
+                return false;
+            }
             randomAvailableChoices().stream().findFirst().ifPresent(definition -> {
                 queue.add(definition);
                 Bukkit.broadcastMessage(plugin.messages().format("event-queued", Map.of("event", definition.displayName())));
@@ -190,12 +194,48 @@ public final class EventManager {
         return true;
     }
 
+    public boolean startPrivateEvent(CommandSender initiator, EventType type, List<Player> invitedPlayers) {
+        if (session != null || invitedPlayers.isEmpty()) {
+            return false;
+        }
+        EventDefinition definition = registry.definition(type);
+        if (definition == null || isEventDisabled(type) || mapSetupService.usableMapsFor(type).isEmpty()) {
+            return false;
+        }
+        runtimeScoreboardValues.clear();
+        session = new EventSession(definition, EventPhase.JOIN);
+        session.adminStarted(true);
+        session.privateSession(true);
+        session.startedBy(initiator.getName());
+        session.waitingHub(configuredLocation("locations.waiting-hub"));
+        session.trophyRoom(configuredLocation("locations.trophy-room"));
+        for (Player player : invitedPlayers) {
+            session.invitedPlayers().add(player.getUniqueId());
+        }
+        if (initiator instanceof Player player) {
+            session.invitedPlayers().add(player.getUniqueId());
+        }
+        selectMapForSession();
+        for (UUID uuid : session.invitedPlayers()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null) {
+                plugin.messages().send(player, "private-event-invite", Map.of("event", definition.displayName()));
+            }
+        }
+        broadcastJoinPrompt(definition.displayName(), "staff");
+        startJoinCountdown();
+        return true;
+    }
+
     public String manualStartFailureReason(Player player, EventDefinition forced, boolean discountedRandom) {
         if (session != null) {
             return "a " + session.definition().displayName() + " event is already running";
         }
         if (forced != null && mapSetupService.usableMapsFor(forced.type()).isEmpty()) {
             return forced.displayName() + " has no completed map setup";
+        }
+        if (forced != null && isEventDisabled(forced.type())) {
+            return forced.displayName() + " is disabled by staff";
         }
         if (forced == null && availableStartChoices().isEmpty()) {
             return "no events with completed map setup are available";
@@ -240,7 +280,7 @@ public final class EventManager {
             return false;
         }
         EventDefinition definition = registry.definition(type);
-        if (definition == null || mapSetupService.usableMapsFor(type).isEmpty()) {
+        if (definition == null || isEventDisabled(type) || mapSetupService.usableMapsFor(type).isEmpty()) {
             return false;
         }
         session = new EventSession(definition, EventPhase.JOIN);
@@ -262,10 +302,42 @@ public final class EventManager {
         if (registry.definition(type) == null) {
             return type.name() + " is not enabled in config.yml";
         }
+        if (isEventDisabled(type)) {
+            return type.name() + " is disabled by staff";
+        }
         if (mapSetupService.usableMapsFor(type).isEmpty()) {
             return type.name() + " has no completed map setup";
         }
         return "start conditions were not met";
+    }
+
+    public boolean isEventDisabled(EventType type) {
+        return plugin.getConfig().getStringList("events.disabled").stream()
+                .map(value -> value.toUpperCase(Locale.ROOT))
+                .anyMatch(value -> value.equals(type.name()));
+    }
+
+    public void setEventDisabled(EventType type, boolean disabled) {
+        List<String> disabledEvents = new ArrayList<>(plugin.getConfig().getStringList("events.disabled"));
+        disabledEvents.removeIf(value -> value.equalsIgnoreCase(type.name()));
+        if (disabled) {
+            disabledEvents.add(type.name());
+        }
+        plugin.getConfig().set("events.disabled", disabledEvents);
+        plugin.saveConfig();
+    }
+
+    public List<EventType> disabledEvents() {
+        return plugin.getConfig().getStringList("events.disabled").stream()
+                .map(value -> {
+                    try {
+                        return EventType.parse(value);
+                    } catch (IllegalArgumentException ex) {
+                        return null;
+                    }
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     public boolean startQuickTest(Player player, EventType type) {
@@ -306,6 +378,10 @@ public final class EventManager {
                 && session.phase() != EventPhase.COUNTDOWN)) {
             return false;
         }
+        if (session.privateSession() && !session.invitedPlayers().contains(player.getUniqueId())) {
+            plugin.messages().send(player, "private-event-not-invited");
+            return true;
+        }
         if (isEventPlayer(player.getUniqueId())) {
             plugin.messages().send(player, "event-already-joined");
             return true;
@@ -337,6 +413,12 @@ public final class EventManager {
     public boolean spectate(Player player) {
         if (session == null || (session.phase() != EventPhase.ACTIVE && session.phase() != EventPhase.TROPHY)) {
             return false;
+        }
+        if (session.privateSession() && !session.invitedPlayers().contains(player.getUniqueId())
+                && !session.participants().contains(player.getUniqueId())
+                && !session.spectators().contains(player.getUniqueId())) {
+            plugin.messages().send(player, "private-event-not-invited");
+            return true;
         }
         EventMap map = session.selectedMap();
         if (map == null || map.spectatorSpawn() == null) {
@@ -631,7 +713,7 @@ public final class EventManager {
             restoreAll(session.participants());
             restoreAll(session.spectators());
             resetRuntimeServices();
-            Bukkit.broadcastMessage(plugin.messages().format("event-ended-no-winner", Map.of("event", session.definition().displayName())));
+            announce(plugin.messages().format("event-ended-no-winner", Map.of("event", session.definition().displayName())));
             session = null;
         }
         playerVotes.clear();
@@ -785,7 +867,9 @@ public final class EventManager {
     }
 
     private List<EventDefinition> validChoice(EventDefinition definition) {
-        return mapSetupService.usableMapsFor(definition.type()).isEmpty() ? List.of() : List.of(definition);
+        return isEventDisabled(definition.type()) || mapSetupService.usableMapsFor(definition.type()).isEmpty()
+                ? List.of()
+                : List.of(definition);
     }
 
     private void startVoteCountdown() {
@@ -803,7 +887,7 @@ public final class EventManager {
                     return;
                 }
                 if (voteRemaining == 30) {
-                    Bukkit.broadcastMessage(plugin.messages().format("vote-reminder", Map.of("time", formatDuration(voteRemaining))));
+                    announce(plugin.messages().format("vote-reminder", Map.of("time", formatDuration(voteRemaining))));
                 }
                 voteRemaining--;
             }
@@ -820,7 +904,7 @@ public final class EventManager {
                 .orElse(session.definition().type());
         EventDefinition definition = registry.definition(winner);
         session.definition(definition == null ? session.definition() : definition);
-        Bukkit.broadcastMessage(plugin.messages().format("vote-winner", Map.of("event", session.definition().displayName())));
+        announce(plugin.messages().format("vote-winner", Map.of("event", session.definition().displayName())));
         voteCloseHandler.run();
         session.phase(EventPhase.JOIN);
         selectMapForSession();
@@ -855,7 +939,7 @@ public final class EventManager {
             return;
         }
         if (shouldAnnounceCountdown(countdownRemaining)) {
-            Bukkit.broadcastMessage(plugin.messages().format("countdown-tick", Map.of(
+            announce(plugin.messages().format("countdown-tick", Map.of(
                     "event", session.definition().displayName(),
                     "seconds", String.valueOf(countdownRemaining),
                     "time", formatDuration(countdownRemaining),
@@ -881,7 +965,7 @@ public final class EventManager {
         }
         readyCountdownApplied = true;
         session.phase(EventPhase.COUNTDOWN);
-        Bukkit.broadcastMessage(plugin.messages().format("join-countdown-ready", Map.of(
+        announce(plugin.messages().format("join-countdown-ready", Map.of(
                 "event", session.definition().displayName(),
                 "seconds", String.valueOf(countdownRemaining),
                 "time", formatDuration(countdownRemaining)
@@ -1084,6 +1168,9 @@ public final class EventManager {
         if (session == null) {
             return;
         }
+        if (session.privateSession()) {
+            return;
+        }
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (session.participants().contains(player.getUniqueId()) || session.spectators().contains(player.getUniqueId())) {
                 continue;
@@ -1096,7 +1183,7 @@ public final class EventManager {
         if (session == null) {
             return;
         }
-        Bukkit.broadcastMessage(plugin.messages().format("event-cancelled-not-enough", Map.of(
+        announce(plugin.messages().format("event-cancelled-not-enough", Map.of(
                 "event", session.definition().displayName(),
                 "players", String.valueOf(session.participants().size()),
                 "min", String.valueOf(minPlayers(session.definition().type()))
@@ -1270,7 +1357,7 @@ public final class EventManager {
             queue.add(definition);
             return;
         }
-        if (definition == null || mapSetupService.usableMapsFor(definition.type()).isEmpty()) {
+        if (definition == null || isEventDisabled(definition.type()) || mapSetupService.usableMapsFor(definition.type()).isEmpty()) {
             return;
         }
         runtimeScoreboardValues.clear();
@@ -1325,10 +1412,10 @@ public final class EventManager {
 
     private void broadcastEventResult(EventSession finished) {
         if (finished.finalRankings().isEmpty()) {
-            Bukkit.broadcastMessage(plugin.messages().format("event-ended-no-winner", Map.of("event", finished.definition().displayName())));
+            announce(plugin.messages().format("event-ended-no-winner", Map.of("event", finished.definition().displayName())));
             return;
         }
-        Bukkit.broadcastMessage(plugin.messages().format("event-ended", Map.of(
+        announce(plugin.messages().format("event-ended", Map.of(
                 "event", finished.definition().displayName(),
                 "winners", winnerNames(finished.finalRankings())
         )));
@@ -1370,6 +1457,30 @@ public final class EventManager {
                 plugin.messages().send(player, messageKey, Map.of("player", playerName));
             }
         }
+    }
+
+    private void announce(String message) {
+        if (session != null && session.privateSession()) {
+            for (UUID uuid : privateAudience()) {
+                Player player = Bukkit.getPlayer(uuid);
+                if (player != null) {
+                    player.sendMessage(message);
+                }
+            }
+            return;
+        }
+        Bukkit.broadcastMessage(message);
+    }
+
+    private Set<UUID> privateAudience() {
+        Set<UUID> audience = new java.util.LinkedHashSet<>();
+        if (session == null) {
+            return audience;
+        }
+        audience.addAll(session.invitedPlayers());
+        audience.addAll(session.participants());
+        audience.addAll(session.spectators());
+        return audience;
     }
 
     private void cancelTask() {
@@ -1463,11 +1574,21 @@ public final class EventManager {
 
     private void broadcastJoinPrompt(String eventName, String source) {
         String sourceText = source.equals("vote") ? "The vote chose " + eventName + ". " : eventName + " is open. ";
-        Bukkit.broadcast(Component.text("[Events] ", NamedTextColor.GOLD)
+        Component message = Component.text("[Events] ", NamedTextColor.GOLD)
                 .append(Component.text(sourceText, NamedTextColor.YELLOW))
                 .append(Component.text("Click to join", NamedTextColor.GREEN).decorate(net.kyori.adventure.text.format.TextDecoration.UNDERLINED)
                         .clickEvent(ClickEvent.runCommand("/event join")))
-                .append(Component.text(" or type /event join.", NamedTextColor.GRAY)));
+                .append(Component.text(" or type /event join.", NamedTextColor.GRAY));
+        if (session != null && session.privateSession()) {
+            for (UUID uuid : privateAudience()) {
+                Player player = Bukkit.getPlayer(uuid);
+                if (player != null) {
+                    player.sendMessage(message);
+                }
+            }
+            return;
+        }
+        Bukkit.broadcast(message);
     }
 
     private void allowTeleport(UUID uuid) {

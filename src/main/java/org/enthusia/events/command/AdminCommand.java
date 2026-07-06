@@ -72,6 +72,24 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return false;
         }
         switch (args[0].toLowerCase(Locale.ROOT)) {
+            case "autostart" -> {
+                return handleAutoStartCommand(sender, args);
+            }
+            case "disable" -> {
+                return handleEventToggleCommand(sender, args, true);
+            }
+            case "enable" -> {
+                return handleEventToggleCommand(sender, args, false);
+            }
+            case "disabled" -> {
+                List<String> disabled = eventManager.disabledEvents().stream().map(Enum::name).toList();
+                plugin.messages().send(sender, "event-disabled-list", Map.of(
+                        "events", disabled.isEmpty() ? "none" : String.join(", ", disabled)
+                ));
+            }
+            case "private" -> {
+                return handlePrivateEventCommand(sender, args);
+            }
             case "forcestart", "simulatevote" -> {
                 boolean started;
                 if (args[0].equalsIgnoreCase("simulatevote")) {
@@ -239,7 +257,18 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(args[0], List.of("forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
+            return filter(args[0], List.of("autostart", "disable", "enable", "disabled", "private", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
+        }
+        if (args.length == 2 && (args[0].equalsIgnoreCase("disable")
+                || args[0].equalsIgnoreCase("enable")
+                || args[0].equalsIgnoreCase("private"))) {
+            return filter(args[1], List.of(EventType.values()).stream().map(Enum::name).toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("autostart")) {
+            return filter(args[1], List.of("on", "off", "status"));
+        }
+        if (args.length >= 3 && args[0].equalsIgnoreCase("private")) {
+            return filter(args[args.length - 1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("kit")) {
             return filter(args[1], List.of("save", "list", "select", "override"));
@@ -288,6 +317,76 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return filter(args[4], Bukkit.getWorlds().stream().map(World::getName).toList());
         }
         return List.of();
+    }
+
+    private boolean handleAutoStartCommand(CommandSender sender, String[] args) {
+        if (args.length < 2 || args[1].equalsIgnoreCase("status")) {
+            plugin.messages().send(sender, "event-autostart-status", Map.of(
+                    "state", plugin.getConfig().getBoolean("schedule.enabled", false) ? "enabled" : "disabled"
+            ));
+            return true;
+        }
+        boolean enabled;
+        if (args[1].equalsIgnoreCase("on") || args[1].equalsIgnoreCase("enable") || args[1].equalsIgnoreCase("enabled")) {
+            enabled = true;
+        } else if (args[1].equalsIgnoreCase("off") || args[1].equalsIgnoreCase("disable") || args[1].equalsIgnoreCase("disabled")) {
+            enabled = false;
+        } else {
+            sender.sendMessage("/ee autostart <on|off|status>");
+            return true;
+        }
+        plugin.getConfig().set("schedule.enabled", enabled);
+        plugin.saveConfig();
+        plugin.messages().send(sender, "event-autostart-updated", Map.of("state", enabled ? "enabled" : "disabled"));
+        return true;
+    }
+
+    private boolean handleEventToggleCommand(CommandSender sender, String[] args, boolean disabled) {
+        if (args.length < 2) {
+            sender.sendMessage(disabled ? "/ee disable <EVENT>" : "/ee enable <EVENT>");
+            return true;
+        }
+        EventType type = parseEvent(sender, args[1]);
+        if (type == null) {
+            return true;
+        }
+        eventManager.setEventDisabled(type, disabled);
+        plugin.messages().send(sender, disabled ? "event-disabled" : "event-enabled", Map.of("event", type.name()));
+        return true;
+    }
+
+    private boolean handlePrivateEventCommand(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage("/ee private <EVENT> <player...>");
+            return true;
+        }
+        EventType type = parseEvent(sender, args[1]);
+        if (type == null) {
+            return true;
+        }
+        List<Player> invited = new ArrayList<>();
+        if (sender instanceof Player player) {
+            invited.add(player);
+        }
+        for (int index = 2; index < args.length; index++) {
+            Player target = Bukkit.getPlayerExact(args[index]);
+            if (target == null) {
+                plugin.messages().send(sender, "player-not-found", Map.of("player", args[index]));
+                return true;
+            }
+            if (!invited.contains(target)) {
+                invited.add(target);
+            }
+        }
+        if (!eventManager.startPrivateEvent(sender, type, invited)) {
+            plugin.messages().send(sender, "force-start-failed", Map.of("reason", eventManager.forcedStartFailureReason(type)));
+            return true;
+        }
+        plugin.messages().send(sender, "private-event-started", Map.of(
+                "event", type.name(),
+                "players", invited.stream().map(Player::getName).collect(Collectors.joining(", "))
+        ));
+        return true;
     }
 
     private boolean handleSetupCommand(CommandSender sender, String[] args) {

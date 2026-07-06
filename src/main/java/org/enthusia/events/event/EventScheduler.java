@@ -37,7 +37,9 @@ public final class EventScheduler {
 
     private void tick() {
         LocalDateTime now = LocalDateTime.now();
-        if (now.getMinute() == 0 && now.getSecond() == plugin.getConfig().getInt("schedule.hourly-vote-second", 0)) {
+        if (plugin.getConfig().getBoolean("schedule.enabled", false)
+                && now.getMinute() == 0
+                && now.getSecond() == plugin.getConfig().getInt("schedule.hourly-vote-second", 0)) {
             eventManager.startScheduledVote();
         }
         List<Integer> chatMinutes = plugin.getConfig().getIntegerList("schedule.chat-event-minutes");

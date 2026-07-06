@@ -19,6 +19,7 @@ public final class UnifiedEventCommand implements CommandExecutor, TabCompleter 
             "join", "leave", "spectate", "vote", "start", "stats", "next", "time", "timer"
     );
     private static final List<String> ADMIN_SUBCOMMANDS = List.of(
+            "autostart", "disable", "enable", "disabled", "private",
             "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "remove",
             "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"
     );
