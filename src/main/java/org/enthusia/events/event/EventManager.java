@@ -12,11 +12,14 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.command.CommandSender;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -25,6 +28,7 @@ import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 import org.enthusia.events.EnthusiaEventsPlugin;
 import org.enthusia.events.config.EventConfigService;
 import org.enthusia.events.kit.EventKitService;
@@ -102,6 +106,8 @@ public final class EventManager {
     };
     private Consumer<Player> kitVotingItemsHandler = player -> {
     };
+    private Runnable gameplayRuntimeReset = () -> {
+    };
     private EventScoreboardService scoreboardService;
     private ArenaResetService arenaResetService;
     private PodiumService podiumService;
@@ -174,6 +180,7 @@ public final class EventManager {
 
         EventDefinition definition = choices.getFirst();
         if (initiator instanceof Player player) {
+            resetRuntimeServices();
             runtimeScoreboardValues.clear();
             session = new EventSession(definition, EventPhase.JOIN);
             session.startedBy(player.getName());
@@ -202,6 +209,7 @@ public final class EventManager {
         if (definition == null || mapSetupService.usableMapsFor(type).isEmpty()) {
             return false;
         }
+        resetRuntimeServices();
         runtimeScoreboardValues.clear();
         session = new EventSession(definition, EventPhase.JOIN);
         session.adminStarted(true);
@@ -268,6 +276,11 @@ public final class EventManager {
         } : kitVotingItemsHandler;
     }
 
+    public void gameplayRuntimeReset(Runnable gameplayRuntimeReset) {
+        this.gameplayRuntimeReset = gameplayRuntimeReset == null ? () -> {
+        } : gameplayRuntimeReset;
+    }
+
     public void recordArenaResetBlock(Block block) {
         if (arenaResetService != null) {
             arenaResetService.recordBlock(block);
@@ -290,6 +303,7 @@ public final class EventManager {
         if (definition == null || isEventDisabled(type) || mapSetupService.usableMapsFor(type).isEmpty()) {
             return false;
         }
+        resetRuntimeServices();
         session = new EventSession(definition, EventPhase.JOIN);
         runtimeScoreboardValues.clear();
         session.adminStarted(true);
@@ -397,13 +411,22 @@ public final class EventManager {
             return false;
         }
         EventMap map = maps.get(ThreadLocalRandom.current().nextInt(maps.size()));
+        if (snapshotService.hasUnrestoredSnapshot(player.getUniqueId())) {
+            plugin.messages().send(player, "event-join-blocked-unrestored");
+            return false;
+        }
+        resetRuntimeServices();
         runtimeScoreboardValues.clear();
         session = new EventSession(definition, EventPhase.ACTIVE);
         session.adminStarted(true);
         session.waitingHub(configuredLocation("locations.waiting-hub"));
         session.trophyRoom(configuredLocation("locations.trophy-room"));
         session.selectedMap(map);
-        snapshotService.capture(player);
+        if (!snapshotService.capture(player)) {
+            session = null;
+            plugin.messages().send(player, "event-join-blocked-unrestored");
+            return false;
+        }
         session.participants().add(player.getUniqueId());
         markEventPlayer(player);
         prepareActivePlayer(player, type);
@@ -430,7 +453,14 @@ public final class EventManager {
             plugin.messages().send(player, "event-already-joined");
             return true;
         }
-        snapshotService.capture(player);
+        if (snapshotService.hasUnrestoredSnapshot(player.getUniqueId())) {
+            plugin.messages().send(player, "event-join-blocked-unrestored");
+            return true;
+        }
+        if (!snapshotService.capture(player)) {
+            plugin.messages().send(player, "event-join-blocked-unrestored");
+            return true;
+        }
         session.participants().add(player.getUniqueId());
         markEventPlayer(player);
         player.closeInventory();
@@ -469,7 +499,14 @@ public final class EventManager {
             return false;
         }
         if (!isEventPlayer(player.getUniqueId())) {
-            snapshotService.capture(player);
+            if (snapshotService.hasUnrestoredSnapshot(player.getUniqueId())) {
+                plugin.messages().send(player, "event-join-blocked-unrestored");
+                return true;
+            }
+            if (!snapshotService.capture(player)) {
+                plugin.messages().send(player, "event-join-blocked-unrestored");
+                return true;
+            }
         }
         session.participants().remove(player.getUniqueId());
         session.spectators().add(player.getUniqueId());
@@ -491,13 +528,13 @@ public final class EventManager {
         playerVotes.remove(player.getUniqueId());
         kitService.clearSelection(player.getUniqueId());
         cleanupBoatRacePlayer(player.getUniqueId());
-        restoreTemporaryEventAttributes(player);
         allowTeleport(player.getUniqueId());
         cleanupEventInventory(player);
-        snapshotService.restore(player, false);
-        restoreScoreboard(player);
-        unmarkEventPlayer(player);
-        plugin.messages().send(player, "event-left");
+        restorePlayerState(player, false).thenAccept(restored -> Bukkit.getScheduler().runTask(plugin, () -> {
+            if (restored) {
+                plugin.messages().send(player, "event-left");
+            }
+        }));
         notifySessionPlayers("event-player-left", player.getName(), player.getUniqueId());
         if (session != null && session.phase() == EventPhase.ACTIVE && session.participants().isEmpty()) {
             scheduleEndActiveEvent(List.copyOf(session.finalRankings()), 0L);
@@ -592,7 +629,7 @@ public final class EventManager {
         return session != null && isTeamBracketEvent(session.definition().type());
     }
 
-    public boolean restoreSnapshot(Player player) {
+    public CompletableFuture<Boolean> restoreSnapshot(Player player) {
         if (session != null) {
             session.participants().remove(player.getUniqueId());
             session.spectators().remove(player.getUniqueId());
@@ -601,19 +638,73 @@ public final class EventManager {
         kitService.clearSelection(player.getUniqueId());
         cleanupBoatRacePlayer(player.getUniqueId());
         allowTeleport(player.getUniqueId());
-        boolean restored = snapshotService.restore(player, false);
-        if (restored) {
-            restoreScoreboard(player);
-            unmarkEventPlayer(player);
-        }
-        if (!restored) {
-            allowedTeleports.remove(player.getUniqueId());
-        }
-        return restored;
+        return restorePlayerState(player, false);
     }
 
     public int retryPendingOnlineRestores() {
-        return snapshotService.retryPendingOnlineRestores();
+        int attempted = 0;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (snapshotService.hasUnrestoredSnapshot(player.getUniqueId())) {
+                restoreSnapshot(player);
+                attempted++;
+            }
+        }
+        return attempted;
+    }
+
+    public String stuckCheck(Player player) {
+        UUID uuid = player.getUniqueId();
+        boolean participant = session != null && session.participants().contains(uuid);
+        boolean spectator = session != null && session.spectators().contains(uuid);
+        boolean eventMetadata = player.hasMetadata(EVENT_METADATA_KEY) || player.hasMetadata(EVENT_METADATA_KEY + "_type");
+        boolean eventTag = player.getScoreboardTags().stream().anyMatch(tag -> tag.equals(EVENT_SCOREBOARD_TAG)
+                || tag.startsWith(EVENT_SCOREBOARD_TAG + "_"));
+        AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
+        String vehicle = player.isInsideVehicle() ? player.getVehicle().getType().name() : "none";
+        String passengers = player.getPassengers().isEmpty()
+                ? "none"
+                : player.getPassengers().stream().map(entity -> entity.getType().name()).collect(Collectors.joining(","));
+        String effects = player.getActivePotionEffects().stream()
+                .map(effect -> effect.getType().getKey().getKey() + ":" + effect.getAmplifier())
+                .collect(Collectors.joining(", "));
+        if (effects.isBlank()) {
+            effects = "none";
+        }
+        return ChatColor.GOLD + "Event stuck check for " + ChatColor.WHITE + player.getName() + "\n"
+                + ChatColor.YELLOW + "Markers: " + ChatColor.GRAY + "tag=" + eventTag
+                + ", metadata=" + eventMetadata + ", participant=" + participant + ", spectator=" + spectator + "\n"
+                + ChatColor.YELLOW + "Snapshot: " + ChatColor.GRAY + "exists=" + snapshotService.hasSnapshot(uuid)
+                + ", unrestored=" + snapshotService.hasUnrestoredSnapshot(uuid) + "\n"
+                + ChatColor.YELLOW + "State: " + ChatColor.GRAY + "maxHealth="
+                + (maxHealth == null ? "unknown" : String.format(Locale.ROOT, "%.1f", maxHealth.getBaseValue()))
+                + ", gamemode=" + player.getGameMode()
+                + ", glowing=" + player.isGlowing() + "\n"
+                + ChatColor.YELLOW + "Movement: " + ChatColor.GRAY + "vehicle=" + vehicle
+                + ", passengers=" + passengers + "\n"
+                + ChatColor.YELLOW + "Effects: " + ChatColor.GRAY + effects;
+    }
+
+    public CompletableFuture<Boolean> emergencyRestore(Player player) {
+        emergencyCleanupPlayer(player, true);
+        allowTeleport(player.getUniqueId());
+        if (!snapshotService.hasSnapshot(player.getUniqueId())) {
+            resetStuckMaxHealth(player);
+            return CompletableFuture.completedFuture(false);
+        }
+        return snapshotService.restore(player, false).thenApply(restored -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (restored) {
+                    restoreScoreboard(player);
+                    unmarkEventPlayer(player);
+                    allowedTeleports.remove(player.getUniqueId());
+                } else {
+                    teleportToSafeFallback(player);
+                    plugin.getLogger().warning("Emergency restore for " + player.getName()
+                            + " could not fully apply. Snapshot remains pending.");
+                }
+            });
+            return restored;
+        });
     }
 
     public void handleQuit(Player player) {
@@ -646,9 +737,11 @@ public final class EventManager {
                     return;
                 }
                 allowTeleport(player.getUniqueId());
-                if (snapshotService.restore(player, false)) {
-                    plugin.messages().send(player, "event-restored-on-join");
-                }
+                restorePlayerState(player, false).thenAccept(restored -> Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (restored) {
+                        plugin.messages().send(player, "event-restored-on-join");
+                    }
+                }));
             }, 20L);
         }
     }
@@ -890,10 +983,26 @@ public final class EventManager {
     }
 
     public void shutdown() {
-        stop("shutdown");
+        cancelTask();
+        cancelActiveTask();
+        cancelPreStartTask();
+        cancelRaceFinishTask();
+        if (session != null) {
+            restoreAllSynchronously(session.participants());
+            restoreAllSynchronously(session.spectators());
+            resetRuntimeServices();
+            session = null;
+        }
+        playerVotes.clear();
+        runtimeScoreboardValues.clear();
+        allowedTeleports.clear();
+        spawnLocked.clear();
+        resetBracketState();
+        kitService.clearSelections();
     }
 
     private void createVoteSession(List<EventDefinition> choices, String startedBy, boolean adminStarted) {
+        resetRuntimeServices();
         runtimeScoreboardValues.clear();
         session = new EventSession(choices.getFirst(), EventPhase.VOTE);
         session.startedBy(startedBy);
@@ -1410,6 +1519,7 @@ public final class EventManager {
         if (definition == null || isEventDisabled(definition.type()) || mapSetupService.usableMapsFor(definition.type()).isEmpty()) {
             return;
         }
+        resetRuntimeServices();
         runtimeScoreboardValues.clear();
         session = new EventSession(definition, EventPhase.JOIN);
         session.startedBy("Queue");
@@ -1426,15 +1536,119 @@ public final class EventManager {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null) {
                 allowTeleport(uuid);
-                restoreTemporaryEventAttributes(player);
-                player.setGlowing(false);
                 cleanupEventInventory(player);
-                snapshotService.restore(player, false);
-                player.setGlowing(false);
-                restoreScoreboard(player);
-                unmarkEventPlayer(player);
+                restorePlayerState(player, false);
             }
         }
+    }
+
+    private void restoreAllSynchronously(Set<UUID> uuids) {
+        for (UUID uuid : List.copyOf(uuids)) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player == null) {
+                continue;
+            }
+            allowTeleport(uuid);
+            cleanupEventInventory(player);
+            emergencyCleanupPlayer(player, false);
+            boolean restored = snapshotService.restoreSynchronously(player, false);
+            if (restored) {
+                restoreScoreboard(player);
+                unmarkEventPlayer(player);
+                allowedTeleports.remove(uuid);
+            }
+        }
+    }
+
+    private CompletableFuture<Boolean> restorePlayerState(Player player, boolean consumeSnapshot) {
+        UUID uuid = player.getUniqueId();
+        emergencyCleanupPlayer(player, false);
+        if (!snapshotService.hasSnapshot(uuid)) {
+            allowedTeleports.remove(uuid);
+            return CompletableFuture.completedFuture(false);
+        }
+        return snapshotService.restore(player, consumeSnapshot).thenApply(restored -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (restored) {
+                    restoreScoreboard(player);
+                    unmarkEventPlayer(player);
+                    allowedTeleports.remove(uuid);
+                } else {
+                    plugin.getLogger().warning("Event snapshot restore failed for " + player.getName()
+                            + ". Event markers were kept and the snapshot remains pending.");
+                    teleportToSafeFallback(player);
+                }
+            });
+            return restored;
+        });
+    }
+
+    public void emergencyCleanupPlayer(Player player, boolean clearMarkers) {
+        UUID uuid = player.getUniqueId();
+        cleanupBoatRacePlayer(uuid);
+        player.setGlowing(false);
+        player.setFireTicks(0);
+        player.setFreezeTicks(0);
+        player.setFallDistance(0.0F);
+        player.setVelocity(new Vector(0.0D, 0.0D, 0.0D));
+        if (player.isInsideVehicle()) {
+            player.leaveVehicle();
+        }
+        for (Entity passenger : List.copyOf(player.getPassengers())) {
+            player.removePassenger(passenger);
+        }
+        removeEventPotionEffects(player);
+        if (clearMarkers || player.getScoreboardTags().contains(EVENT_SCOREBOARD_TAG) || player.hasMetadata(EVENT_METADATA_KEY)) {
+            player.setLevel(0);
+            player.setExp(0.0F);
+        }
+        if (!snapshotService.hasSnapshot(uuid)) {
+            resetStuckMaxHealth(player);
+        }
+        if (clearMarkers) {
+            playerVotes.remove(uuid);
+            kitService.clearSelection(uuid);
+            allowedTeleports.remove(uuid);
+            spawnLocked.remove(uuid);
+            restoreScoreboard(player);
+            unmarkEventPlayer(player);
+        }
+    }
+
+    private void removeEventPotionEffects(Player player) {
+        for (PotionEffectType type : List.of(
+                PotionEffectType.SLOWNESS,
+                PotionEffectType.GLOWING,
+                PotionEffectType.RESISTANCE,
+                PotionEffectType.HASTE,
+                PotionEffectType.REGENERATION,
+                PotionEffectType.MINING_FATIGUE,
+                PotionEffectType.SPEED,
+                PotionEffectType.JUMP_BOOST,
+                PotionEffectType.BLINDNESS,
+                PotionEffectType.INVISIBILITY
+        )) {
+            player.removePotionEffect(type);
+        }
+    }
+
+    private void resetStuckMaxHealth(Player player) {
+        AttributeInstance attribute = player.getAttribute(Attribute.MAX_HEALTH);
+        if (attribute != null && attribute.getBaseValue() <= 2.0D) {
+            attribute.setBaseValue(20.0D);
+        }
+        if (player.getHealth() > player.getMaxHealth()) {
+            player.setHealth(player.getMaxHealth());
+        }
+    }
+
+    private void teleportToSafeFallback(Player player) {
+        Location fallback = waitingHubLocation();
+        if (fallback == null) {
+            fallback = player.getWorld().getSpawnLocation();
+        }
+        allowTeleport(player.getUniqueId());
+        TeleportService.teleport(plugin, player, fallback, "emergency restore fallback");
     }
 
     private void payWinner(EventSession finished) {
@@ -2102,11 +2316,8 @@ public final class EventManager {
         if (session == null || session.definition().type() != EventType.ELYTRA_RACE) {
             return;
         }
-        if (player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null) {
-            player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(20.0D);
-        }
-        if (player.getHealth() > player.getMaxHealth()) {
-            player.setHealth(player.getMaxHealth());
+        if (!snapshotService.hasSnapshot(player.getUniqueId())) {
+            resetStuckMaxHealth(player);
         }
     }
 
@@ -2281,6 +2492,7 @@ public final class EventManager {
     }
 
     private void resetRuntimeServices() {
+        gameplayRuntimeReset.run();
         if (arenaResetService != null) {
             arenaResetService.reset();
         }

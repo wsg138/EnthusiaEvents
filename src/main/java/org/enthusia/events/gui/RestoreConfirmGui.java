@@ -70,11 +70,14 @@ public final class RestoreConfirmGui {
             return;
         }
         Player target = Bukkit.getPlayer(UUID.fromString(targetRaw));
-        if (target != null && eventManager.restoreSnapshot(target)) {
-            plugin.messages().send(admin, "event-restored");
-        } else {
+        if (target == null) {
             plugin.messages().send(admin, "event-no-snapshot");
+            return;
         }
+        plugin.messages().send(admin, "event-restore-started", Map.of("player", target.getName()));
+        eventManager.restoreSnapshot(target).thenAccept(restored -> Bukkit.getScheduler().runTask(plugin, () ->
+                plugin.messages().send(admin, restored ? "event-restored" : "event-restore-failed-staff",
+                        Map.of("player", target.getName()))));
     }
 
     private ItemStack item(Material material, String action, Player target, String name, List<String> lore) {

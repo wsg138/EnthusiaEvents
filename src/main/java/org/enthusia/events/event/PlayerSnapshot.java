@@ -2,6 +2,8 @@ package org.enthusia.events.event;
 
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
@@ -14,6 +16,7 @@ public record PlayerSnapshot(
         ItemStack[] inventory,
         ItemStack[] armor,
         ItemStack offhand,
+        double maxHealth,
         double health,
         int foodLevel,
         float saturation,
@@ -33,6 +36,7 @@ public record PlayerSnapshot(
                 player.getInventory().getContents().clone(),
                 player.getInventory().getArmorContents().clone(),
                 player.getInventory().getItemInOffHand().clone(),
+                captureMaxHealth(player),
                 Math.min(player.getHealth(), player.getMaxHealth()),
                 player.getFoodLevel(),
                 player.getSaturation(),
@@ -45,5 +49,11 @@ public record PlayerSnapshot(
                 player.getWalkSpeed(),
                 player.getFlySpeed()
         );
+    }
+
+    private static double captureMaxHealth(Player player) {
+        AttributeInstance attribute = player.getAttribute(Attribute.MAX_HEALTH);
+        double value = attribute == null ? player.getMaxHealth() : attribute.getBaseValue();
+        return value > 0.0D ? value : 20.0D;
     }
 }

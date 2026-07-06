@@ -114,6 +114,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         restoreConfirmGui = new RestoreConfirmGui(this, eventManager);
         scheduler = new EventScheduler(this, eventManager);
         gameplayListener = new EventGameplayListener(this, eventManager);
+        eventManager.gameplayRuntimeReset(gameplayListener::resetForNewSession);
         setupWizard = new SetupWizard(this, mapSetupService);
         chatEventService = new ChatEventService(this, economy);
         specAuditRegistry = new EventSpecAuditRegistry(this, eventRegistry, mapSetupService);
@@ -197,7 +198,11 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         return eventRegistry;
     }
 
-    public void reloadPlugin() {
+    public boolean reloadPlugin() {
+        if (eventManager != null && eventManager.hasSession()) {
+            getLogger().warning("Blocked EnthusiaEvents reload because an event session is active.");
+            return false;
+        }
         reloadConfig();
         messages.reload();
         eventConfigService.reload();
@@ -209,6 +214,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         mapSetupService.reload();
         specAuditRegistry.logStartupWarnings();
         scheduler.restart();
+        return true;
     }
 
     public void resetGeneratedConfigs() {

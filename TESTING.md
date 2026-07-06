@@ -4,6 +4,18 @@ Use this for the final player test before moving from the test server to the liv
 
 ## Latest Fixes To Test
 
+- [ ] Elytra Race restores each player's original max health after finish, leave, relog restore, `/ee restore`, `/ee emergencyrestore`, and `/ee forcestop`.
+- [ ] A player with non-default max health before Elytra Race gets that exact max health back, not hardcoded 20.
+- [ ] Quit during an event, wait/restart, rejoin, and confirm the pending snapshot is restored before the player is considered clean.
+- [ ] A player with a pending unrestored snapshot cannot `/event join` another event.
+- [ ] `/ee retryrestores` only reports completion after the player inventory/location/state actually restore.
+- [ ] `/ee restore <player>` reports failure if teleport/apply fails and leaves the snapshot pending.
+- [ ] `/ee stuckcheck <player>` shows event tags, metadata, participant/spectator status, unrestored snapshot status, max health, gamemode, glowing, vehicle/passenger state, and potion effects.
+- [ ] `/ee emergencyrestore <player>` clears stuck event state and restores the snapshot when possible.
+- [ ] If emergency snapshot teleport fails, the player is moved to a safe fallback and the original snapshot remains pending.
+- [ ] `/ee reload` is blocked while any event session is active.
+- [ ] Plugin disable/restart during an event does not mark snapshots restored unless the player inventory/location/state actually restored.
+- [ ] Event force stop, not-enough-players cancel, normal finish, leave, relog restore, and failed start all clear runtime state without leaving event items, vehicles, glowing, potions, XP countdown, or spectator mode behind.
 - [ ] `/ee autostart status` shows automatic event starts are disabled by default.
 - [ ] `/ee autostart on` enables automatic hourly event votes.
 - [ ] `/ee autostart off` disables automatic hourly event votes again.

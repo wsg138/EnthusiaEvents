@@ -173,11 +173,39 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 }
                 if (sender instanceof Player admin) {
                     restoreConfirmGui.open(admin, target);
-                } else if (eventManager.restoreSnapshot(target)) {
-                    plugin.messages().send(sender, "event-restored");
                 } else {
-                    plugin.messages().send(sender, "event-no-snapshot");
+                    plugin.messages().send(sender, "event-restore-started", Map.of("player", target.getName()));
+                    eventManager.restoreSnapshot(target).thenAccept(restored -> Bukkit.getScheduler().runTask(plugin, () ->
+                            plugin.messages().send(sender, restored ? "event-restored" : "event-restore-failed-staff",
+                                    Map.of("player", target.getName()))));
                 }
+            }
+            case "stuckcheck" -> {
+                if (args.length < 2) {
+                    sender.sendMessage("/ee stuckcheck <player>");
+                    return true;
+                }
+                Player target = Bukkit.getPlayerExact(args[1]);
+                if (target == null) {
+                    plugin.messages().send(sender, "player-not-found", Map.of("player", args[1]));
+                    return true;
+                }
+                sender.sendMessage(eventManager.stuckCheck(target));
+            }
+            case "emergencyrestore" -> {
+                if (args.length < 2) {
+                    sender.sendMessage("/ee emergencyrestore <player>");
+                    return true;
+                }
+                Player target = Bukkit.getPlayerExact(args[1]);
+                if (target == null) {
+                    plugin.messages().send(sender, "player-not-found", Map.of("player", args[1]));
+                    return true;
+                }
+                plugin.messages().send(sender, "event-emergency-restore-started", Map.of("player", target.getName()));
+                eventManager.emergencyRestore(target).thenAccept(restored -> Bukkit.getScheduler().runTask(plugin, () ->
+                        plugin.messages().send(sender, restored ? "event-emergency-restore-done" : "event-emergency-restore-partial",
+                                Map.of("player", target.getName()))));
             }
             case "remove" -> {
                 if (args.length < 2) {
@@ -189,8 +217,11 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "reload" -> {
-                plugin.reloadPlugin();
-                plugin.messages().send(sender, "reload-done");
+                if (plugin.reloadPlugin()) {
+                    plugin.messages().send(sender, "reload-done");
+                } else {
+                    plugin.messages().send(sender, "reload-blocked-active-event");
+                }
             }
             case "retryrestores" -> {
                 int count = eventManager.retryPendingOnlineRestores();
@@ -271,7 +302,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(args[0], List.of("autostart", "disable", "enable", "enabled", "disabled", "status", "private", "invite", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
+            return filter(args[0], List.of("autostart", "disable", "enable", "enabled", "disabled", "status", "private", "invite", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "stuckcheck", "emergencyrestore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("disable")
                 || args[0].equalsIgnoreCase("enable")
@@ -314,7 +345,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 4 && args[0].equalsIgnoreCase("setup")) {
             return filter(args[3], List.of("pos1", "pos2", "spawn", "spectator", "checkpoint", "checkpoint_spawn", "finish", "chest", "generator", "point", "area_pos1", "area_pos2", "area"));
         }
-        if (args.length == 2 && List.of("restore", "remove").contains(args[0].toLowerCase(Locale.ROOT))) {
+        if (args.length == 2 && List.of("restore", "stuckcheck", "emergencyrestore", "remove").contains(args[0].toLowerCase(Locale.ROOT))) {
             return filter(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("map")) {

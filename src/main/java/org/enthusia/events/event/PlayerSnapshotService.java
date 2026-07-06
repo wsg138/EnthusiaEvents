@@ -2,6 +2,8 @@ package org.enthusia.events.event;
 
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -23,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
@@ -36,6 +39,7 @@ public final class PlayerSnapshotService {
     private final Map<UUID, PlayerSnapshot> snapshots = new ConcurrentHashMap<>();
     private final Map<UUID, Long> capturedAt = new ConcurrentHashMap<>();
     private final Map<UUID, Boolean> restored = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> warnedOldUnrestored = new ConcurrentHashMap<>();
 
     public PlayerSnapshotService(EnthusiaEventsPlugin plugin) {
         this.plugin = plugin;
@@ -43,60 +47,98 @@ public final class PlayerSnapshotService {
         load();
     }
 
-    public void capture(Player player) {
-        purgeExpired();
+    public boolean capture(Player player) {
+        purgeExpiredRestored();
+        if (hasUnrestoredSnapshot(player.getUniqueId())) {
+            plugin.getLogger().warning("Refusing to overwrite unrestored event snapshot for " + player.getName()
+                    + ". Restore or discard the existing snapshot first.");
+            return false;
+        }
         snapshots.put(player.getUniqueId(), PlayerSnapshot.capture(player));
         capturedAt.put(player.getUniqueId(), System.currentTimeMillis());
         restored.put(player.getUniqueId(), false);
         save();
+        return true;
     }
 
     public boolean hasSnapshot(UUID uuid) {
-        purgeExpired();
+        purgeExpiredRestored();
         return snapshots.containsKey(uuid);
     }
 
     public boolean hasUnrestoredSnapshot(UUID uuid) {
-        purgeExpired();
+        purgeExpiredRestored();
         return snapshots.containsKey(uuid) && !restored.getOrDefault(uuid, false);
     }
 
-    public boolean restore(Player player, boolean consume) {
-        purgeExpired();
+    public CompletableFuture<Boolean> restore(Player player, boolean consume) {
+        purgeExpiredRestored();
         PlayerSnapshot snapshot = snapshots.get(player.getUniqueId());
         if (snapshot == null) {
-            return false;
+            return CompletableFuture.completedFuture(false);
         }
 
         if (snapshot.location() != null) {
-            restoreWithRetry(player, snapshot, consume, 0);
+            CompletableFuture<Boolean> result = new CompletableFuture<>();
+            restoreWithRetry(player, snapshot, consume, 0, result);
+            return result;
         } else {
-            applySnapshot(player, snapshot);
-            markRestored(player.getUniqueId(), consume);
+            boolean applied = applySnapshot(player, snapshot);
+            if (applied) {
+                markRestored(player.getUniqueId(), consume);
+            }
+            return CompletableFuture.completedFuture(applied);
         }
-        return true;
     }
 
-    private void restoreWithRetry(Player player, PlayerSnapshot snapshot, boolean consume, int attempt) {
+    public boolean restoreSynchronously(Player player, boolean consume) {
+        purgeExpiredRestored();
+        PlayerSnapshot snapshot = snapshots.get(player.getUniqueId());
+        if (snapshot == null || !player.isOnline()) {
+            return false;
+        }
+        if (snapshot.location() != null && !player.teleport(snapshot.location())) {
+            plugin.getLogger().warning("Could not synchronously teleport " + player.getName()
+                    + " for event snapshot restore. Snapshot remains pending.");
+            plugin.messages().send(player, "event-restore-failed");
+            return false;
+        }
+        boolean applied = applySnapshot(player, snapshot);
+        if (applied) {
+            markRestored(player.getUniqueId(), consume);
+        }
+        return applied;
+    }
+
+    private void restoreWithRetry(Player player, PlayerSnapshot snapshot, boolean consume, int attempt,
+                                  CompletableFuture<Boolean> result) {
         if (!player.isOnline()) {
+            result.complete(false);
             return;
         }
         TeleportService.teleport(plugin, player, snapshot.location(), "restore event snapshot")
                 .thenAccept(success -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (result.isDone()) {
+                        return;
+                    }
                     if (success) {
-                        applySnapshot(player, snapshot);
-                        markRestored(player.getUniqueId(), consume);
+                        boolean applied = applySnapshot(player, snapshot);
+                        if (applied) {
+                            markRestored(player.getUniqueId(), consume);
+                        }
+                        result.complete(applied);
                         return;
                     }
                     if (attempt < RESTORE_RETRY_DELAYS_TICKS.length) {
                         int delay = RESTORE_RETRY_DELAYS_TICKS[attempt];
                         plugin.getServer().getScheduler().runTaskLater(plugin,
-                                () -> restoreWithRetry(player, snapshot, consume, attempt + 1), delay);
+                                () -> restoreWithRetry(player, snapshot, consume, attempt + 1, result), delay);
                         return;
                     }
                     plugin.getLogger().warning("Could not restore event snapshot for " + player.getName()
                             + ". Snapshot was kept for a later retry.");
                     plugin.messages().send(player, "event-restore-failed");
+                    result.complete(false);
                 }));
     }
 
@@ -122,9 +164,9 @@ public final class PlayerSnapshotService {
         save();
     }
 
-    private void applySnapshot(Player player, PlayerSnapshot snapshot) {
+    private boolean applySnapshot(Player player, PlayerSnapshot snapshot) {
         if (!player.isOnline()) {
-            return;
+            return false;
         }
         player.closeInventory();
         player.getInventory().setContents(snapshot.inventory());
@@ -141,8 +183,20 @@ public final class PlayerSnapshotService {
         player.setFlySpeed(snapshot.flySpeed());
         player.getActivePotionEffects().forEach(effect -> player.removePotionEffect(effect.getType()));
         snapshot.potionEffects().forEach(player::addPotionEffect);
+        restoreMaxHealth(player, snapshot.maxHealth());
         player.setHealth(Math.min(snapshot.health(), player.getMaxHealth()));
         player.updateInventory();
+        return true;
+    }
+
+    public void restoreMaxHealth(Player player, double maxHealth) {
+        if (maxHealth <= 0.0D) {
+            return;
+        }
+        AttributeInstance attribute = player.getAttribute(Attribute.MAX_HEALTH);
+        if (attribute != null) {
+            attribute.setBaseValue(maxHealth);
+        }
     }
 
     public void discard(UUID uuid) {
@@ -169,6 +223,7 @@ public final class PlayerSnapshotService {
                 config.set(path + ".inventory", nullableList(snapshot.inventory()));
                 config.set(path + ".armor", nullableList(snapshot.armor()));
                 config.set(path + ".offhand", snapshot.offhand());
+                config.set(path + ".max-health", snapshot.maxHealth());
                 config.set(path + ".health", snapshot.health());
                 config.set(path + ".food-level", snapshot.foodLevel());
                 config.set(path + ".saturation", snapshot.saturation());
@@ -209,9 +264,13 @@ public final class PlayerSnapshotService {
                 UUID uuid = UUID.fromString(key);
                 String path = "players." + key;
                 long timestamp = config.getLong(path + ".captured-at", 0L);
-                if (timestamp <= 0L || now - timestamp > SNAPSHOT_TTL_MILLIS) {
+                boolean entryRestored = config.getBoolean(path + ".restored", false);
+                if (timestamp <= 0L || (entryRestored && now - timestamp > SNAPSHOT_TTL_MILLIS)) {
                     changed = true;
                     continue;
+                }
+                if (!entryRestored && now - timestamp > SNAPSHOT_TTL_MILLIS) {
+                    logOldUnrestoredWarning(uuid, timestamp);
                 }
                 Location location = LocationCodec.decode(config.getString(path + ".location", ""));
                 if (location == null) {
@@ -223,6 +282,7 @@ public final class PlayerSnapshotService {
                         itemStackArray(config.getList(path + ".inventory"), 41),
                         itemStackArray(config.getList(path + ".armor"), 4),
                         config.getItemStack(path + ".offhand"),
+                        config.getDouble(path + ".max-health", 20.0D),
                         config.getDouble(path + ".health", 20.0D),
                         config.getInt(path + ".food-level", 20),
                         (float) config.getDouble(path + ".saturation", 5.0D),
@@ -237,7 +297,7 @@ public final class PlayerSnapshotService {
                 );
                 snapshots.put(uuid, snapshot);
                 capturedAt.put(uuid, timestamp);
-                restored.put(uuid, config.getBoolean(path + ".restored", false));
+                restored.put(uuid, entryRestored);
             } catch (RuntimeException ex) {
                 changed = true;
                 plugin.getLogger().log(Level.WARNING, "Skipped corrupt event snapshot entry: " + key, ex);
@@ -248,10 +308,18 @@ public final class PlayerSnapshotService {
         }
     }
 
-    private void purgeExpired() {
+    private void purgeExpiredRestored() {
         long now = System.currentTimeMillis();
         boolean changed = false;
         for (Map.Entry<UUID, Long> entry : new LinkedHashMap<>(capturedAt).entrySet()) {
+            UUID uuid = entry.getKey();
+            if (now - entry.getValue() <= SNAPSHOT_TTL_MILLIS) {
+                continue;
+            }
+            if (!restored.getOrDefault(uuid, false)) {
+                logOldUnrestoredWarning(uuid, entry.getValue());
+                continue;
+            }
             if (now - entry.getValue() > SNAPSHOT_TTL_MILLIS) {
                 snapshots.remove(entry.getKey());
                 capturedAt.remove(entry.getKey());
@@ -262,6 +330,18 @@ public final class PlayerSnapshotService {
         if (changed) {
             save();
         }
+    }
+
+    private void logOldUnrestoredWarning(UUID uuid, long timestamp) {
+        long lastWarned = warnedOldUnrestored.getOrDefault(uuid, 0L);
+        long now = System.currentTimeMillis();
+        if (now - lastWarned < Duration.ofHours(6).toMillis()) {
+            return;
+        }
+        warnedOldUnrestored.put(uuid, now);
+        long ageDays = Math.max(1L, Duration.ofMillis(now - timestamp).toDays());
+        plugin.getLogger().warning("Unrestored event snapshot for " + uuid + " is " + ageDays
+                + " day(s) old and was not purged. Restore or review it manually.");
     }
 
     private List<ItemStack> nullableList(ItemStack[] items) {
