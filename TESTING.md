@@ -8,13 +8,19 @@ Use this for the final player test before moving from the test server to the liv
 - [ ] `/ee autostart on` enables automatic hourly event votes.
 - [ ] `/ee autostart off` disables automatic hourly event votes again.
 - [ ] With autostart off, wait across an hourly vote time and confirm no automatic vote starts.
-- [ ] `/ee disable <EVENT>` prevents that event from appearing in `/event start`, random votes, automatic votes, `/ee forcestart`, and `/ee private`.
+- [ ] `/ee disable <EVENT>` prevents that event from appearing in `/event start`, random votes, automatic votes, and `/ee forcestart`.
 - [ ] `/ee enable <EVENT>` restores that event to starts/votes.
 - [ ] `/ee disabled` lists disabled events clearly.
-- [ ] `/ee private <EVENT> <player...>` starts a private event without global chat announcements.
+- [ ] `/ee enabled` lists enabled events clearly.
+- [ ] `/ee status` shows active event, autostart state, and disabled events.
+- [ ] `/ee private <EVENT>` starts a private waiting event without global chat announcements.
+- [ ] `/ee private <EVENT>` works even if that event is disabled.
+- [ ] `/ee invite <player>` invites a player to the active private event.
 - [ ] Invited players can join the private event with `/event join`.
 - [ ] A non-invited player cannot join or spectate a private event.
-- [ ] Private event countdowns, start messages, cancelled messages, and winner messages are only visible to invited/event players.
+- [ ] Private event does not countdown or start until `/ee advance` or `/ee forcestart`.
+- [ ] Private event winner/no-winner messages are not announced globally or privately.
+- [ ] Private event other messages are only visible to invited/event players.
 - [ ] Private event start sound does not play globally.
 - [ ] `Fight 2v2` runs as a 2v2 bracket: only two teams fight at a time and waiting teams are spectators.
 - [ ] `Sumo 2v2` runs as a 2v2 bracket: only two teams fight at a time and waiting teams are spectators.

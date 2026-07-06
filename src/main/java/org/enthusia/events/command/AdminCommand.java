@@ -81,19 +81,33 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             case "enable" -> {
                 return handleEventToggleCommand(sender, args, false);
             }
+            case "enabled" -> {
+                List<String> enabled = eventManager.enabledEvents().stream().map(Enum::name).toList();
+                plugin.messages().send(sender, "event-enabled-list", Map.of(
+                        "events", enabled.isEmpty() ? "none" : String.join(", ", enabled)
+                ));
+            }
             case "disabled" -> {
                 List<String> disabled = eventManager.disabledEvents().stream().map(Enum::name).toList();
                 plugin.messages().send(sender, "event-disabled-list", Map.of(
                         "events", disabled.isEmpty() ? "none" : String.join(", ", disabled)
                 ));
             }
+            case "status" -> {
+                plugin.messages().send(sender, "event-admin-status", Map.of("status", eventManager.adminStatusLine()));
+            }
             case "private" -> {
                 return handlePrivateEventCommand(sender, args);
+            }
+            case "invite" -> {
+                return handleInviteCommand(sender, args);
             }
             case "forcestart", "simulatevote" -> {
                 boolean started;
                 if (args[0].equalsIgnoreCase("simulatevote")) {
                     started = eventManager.startScheduledVote();
+                } else if (args.length == 1 && eventManager.isPrivateSessionWaiting()) {
+                    started = eventManager.advancePhase();
                 } else if (args.length >= 2) {
                     EventType type = parseEvent(sender, args[1]);
                     if (type == null) {
@@ -257,12 +271,15 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(args[0], List.of("autostart", "disable", "enable", "disabled", "private", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
+            return filter(args[0], List.of("autostart", "disable", "enable", "enabled", "disabled", "status", "private", "invite", "forcestart", "simulatevote", "advance", "forcestop", "quicktest", "stop", "restore", "remove", "reload", "retryrestores", "kit", "resetconfigs", "resetloot", "sethub", "settrophy", "map", "setup", "quicksetup"));
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("disable")
                 || args[0].equalsIgnoreCase("enable")
                 || args[0].equalsIgnoreCase("private"))) {
             return filter(args[1], List.of(EventType.values()).stream().map(Enum::name).toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("invite")) {
+            return filter(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("autostart")) {
             return filter(args[1], List.of("on", "off", "status"));
@@ -356,8 +373,8 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean handlePrivateEventCommand(CommandSender sender, String[] args) {
-        if (args.length < 3) {
-            sender.sendMessage("/ee private <EVENT> <player...>");
+        if (args.length < 2) {
+            sender.sendMessage("/ee private <EVENT> [player...]");
             return true;
         }
         EventType type = parseEvent(sender, args[1]);
@@ -379,13 +396,31 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             }
         }
         if (!eventManager.startPrivateEvent(sender, type, invited)) {
-            plugin.messages().send(sender, "force-start-failed", Map.of("reason", eventManager.forcedStartFailureReason(type)));
+            plugin.messages().send(sender, "force-start-failed", Map.of("reason", eventManager.privateStartFailureReason(type)));
             return true;
         }
         plugin.messages().send(sender, "private-event-started", Map.of(
                 "event", type.name(),
-                "players", invited.stream().map(Player::getName).collect(Collectors.joining(", "))
+                "players", invited.isEmpty() ? "none yet" : invited.stream().map(Player::getName).collect(Collectors.joining(", "))
         ));
+        return true;
+    }
+
+    private boolean handleInviteCommand(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage("/ee invite <player>");
+            return true;
+        }
+        Player target = Bukkit.getPlayerExact(args[1]);
+        if (target == null) {
+            plugin.messages().send(sender, "player-not-found", Map.of("player", args[1]));
+            return true;
+        }
+        if (!eventManager.invitePrivatePlayer(target)) {
+            plugin.messages().send(sender, "private-event-invite-failed");
+            return true;
+        }
+        plugin.messages().send(sender, "private-event-player-invited", Map.of("player", target.getName()));
         return true;
     }
 

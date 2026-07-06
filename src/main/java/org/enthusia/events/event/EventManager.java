@@ -195,11 +195,11 @@ public final class EventManager {
     }
 
     public boolean startPrivateEvent(CommandSender initiator, EventType type, List<Player> invitedPlayers) {
-        if (session != null || invitedPlayers.isEmpty()) {
+        if (session != null) {
             return false;
         }
         EventDefinition definition = registry.definition(type);
-        if (definition == null || isEventDisabled(type) || mapSetupService.usableMapsFor(type).isEmpty()) {
+        if (definition == null || mapSetupService.usableMapsFor(type).isEmpty()) {
             return false;
         }
         runtimeScoreboardValues.clear();
@@ -222,8 +222,15 @@ public final class EventManager {
                 plugin.messages().send(player, "private-event-invite", Map.of("event", definition.displayName()));
             }
         }
-        broadcastJoinPrompt(definition.displayName(), "staff");
-        startJoinCountdown();
+        return true;
+    }
+
+    public boolean invitePrivatePlayer(Player player) {
+        if (!isPrivateSessionWaiting() || player == null) {
+            return false;
+        }
+        session.invitedPlayers().add(player.getUniqueId());
+        plugin.messages().send(player, "private-event-invite", Map.of("event", session.definition().displayName()));
         return true;
     }
 
@@ -311,6 +318,19 @@ public final class EventManager {
         return "start conditions were not met";
     }
 
+    public String privateStartFailureReason(EventType type) {
+        if (session != null) {
+            return "a " + session.definition().displayName() + " event is already running";
+        }
+        if (registry.definition(type) == null) {
+            return type.name() + " is not enabled in config.yml";
+        }
+        if (mapSetupService.usableMapsFor(type).isEmpty()) {
+            return type.name() + " has no completed map setup";
+        }
+        return "start conditions were not met";
+    }
+
     public boolean isEventDisabled(EventType type) {
         return plugin.getConfig().getStringList("events.disabled").stream()
                 .map(value -> value.toUpperCase(Locale.ROOT))
@@ -338,6 +358,30 @@ public final class EventManager {
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();
+    }
+
+    public List<EventType> enabledEvents() {
+        return registry.all().stream()
+                .map(EventDefinition::type)
+                .filter(type -> !isEventDisabled(type))
+                .toList();
+    }
+
+    public boolean isPrivateSessionWaiting() {
+        return session != null && session.privateSession()
+                && (session.phase() == EventPhase.JOIN || session.phase() == EventPhase.COUNTDOWN);
+    }
+
+    public String adminStatusLine() {
+        String active = session == null
+                ? "none"
+                : session.definition().displayName() + " / " + session.phase().name()
+                + (session.privateSession() ? " / private / invited " + session.invitedPlayers().size() : "");
+        String auto = plugin.getConfig().getBoolean("schedule.enabled", false) ? "enabled" : "disabled";
+        String disabled = disabledEvents().isEmpty()
+                ? "none"
+                : disabledEvents().stream().map(Enum::name).collect(Collectors.joining(", "));
+        return "Active: " + active + " | Autostart: " + auto + " | Disabled: " + disabled;
     }
 
     public boolean startQuickTest(Player player, EventType type) {
@@ -710,10 +754,13 @@ public final class EventManager {
         cancelRaceFinishTask();
         spawnLocked.clear();
         if (session != null) {
+            boolean privateSession = session.privateSession();
             restoreAll(session.participants());
             restoreAll(session.spectators());
             resetRuntimeServices();
-            announce(plugin.messages().format("event-ended-no-winner", Map.of("event", session.definition().displayName())));
+            if (!privateSession) {
+                announce(plugin.messages().format("event-ended-no-winner", Map.of("event", session.definition().displayName())));
+            }
             session = null;
         }
         playerVotes.clear();
@@ -953,6 +1000,9 @@ public final class EventManager {
 
     private void maybeApplyReadyCountdown() {
         if (session == null || readyCountdownApplied) {
+            return;
+        }
+        if (session.privateSession()) {
             return;
         }
         int requiredReadyPlayers = session.adminStarted() ? 1 : readyPlayers(session.definition().type());
@@ -1411,6 +1461,9 @@ public final class EventManager {
     }
 
     private void broadcastEventResult(EventSession finished) {
+        if (finished.privateSession()) {
+            return;
+        }
         if (finished.finalRankings().isEmpty()) {
             announce(plugin.messages().format("event-ended-no-winner", Map.of("event", finished.definition().displayName())));
             return;

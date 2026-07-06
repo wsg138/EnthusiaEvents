@@ -12,7 +12,7 @@ commands:
     usage: /event <join|leave|spectate|vote|start|stats|next|time|timer|admin>
   ee:
     description: Admin event commands.
-    usage: /ee <autostart|disable|enable|disabled|private|forcestart|simulatevote|advance|forcestop|quicktest|stop|restore|remove|reload|retryrestores|kit|resetconfigs|resetloot|sethub|settrophy|map|setup|quicksetup>
+    usage: /ee <autostart|disable|enable|enabled|disabled|status|private|invite|forcestart|simulatevote|advance|forcestop|quicktest|stop|restore|remove|reload|retryrestores|kit|resetconfigs|resetloot|sethub|settrophy|map|setup|quicksetup>
     aliases: [events]
   setup:
     description: Open the event map setup wizard.
