@@ -19,6 +19,7 @@ public final class EventMap {
     private final Map<String, Location> checkpointLocations = new LinkedHashMap<>();
     private final Map<String, List<Location>> checkpointBlockLocations = new LinkedHashMap<>();
     private final Map<String, Location> pointLocations = new LinkedHashMap<>();
+    private final Map<String, String> pointBlockData = new LinkedHashMap<>();
     private final Map<String, CuboidRegion> namedAreas = new LinkedHashMap<>();
     private final Map<Integer, List<Location>> chestLocations = new LinkedHashMap<>();
     private final Map<String, List<Location>> generatorLocations = new LinkedHashMap<>();
@@ -78,6 +79,10 @@ public final class EventMap {
 
     public Map<String, Location> points() {
         return pointLocations;
+    }
+
+    public Map<String, String> pointBlockData() {
+        return pointBlockData;
     }
 
     public Map<String, CuboidRegion> areas() {

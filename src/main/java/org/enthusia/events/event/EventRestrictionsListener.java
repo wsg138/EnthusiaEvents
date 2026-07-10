@@ -10,7 +10,9 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
@@ -74,7 +76,8 @@ public final class EventRestrictionsListener implements Listener {
         Player player = event.getPlayer();
         Location to = event.getTo();
         EventSession session = eventManager.session();
-        boolean enforceActiveMap = session != null && session.phase() == EventPhase.ACTIVE;
+        boolean enforceActiveMap = session != null && (session.phase() == EventPhase.PRESTART
+                || session.phase() == EventPhase.ACTIVE || session.phase() == EventPhase.TROPHY);
         EventMap activeMap = eventManager.activeMap();
 
         if (eventManager.isEventPlayer(player.getUniqueId())) {
@@ -129,6 +132,32 @@ public final class EventRestrictionsListener implements Listener {
                 && eventManager.isEventPlayer(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
             plugin.messages().send(event.getPlayer(), "blocked-teleport");
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreatureSpawn(CreatureSpawnEvent event) {
+        Location location = event.getLocation();
+        CuboidRegion hub = eventManager.waitingHubRegion();
+        CuboidRegion trophy = eventManager.trophyRoomRegion();
+        boolean protectedEventLocation = mapSetupService.isConfiguredMapWorld(location.getWorld().getName())
+                || (hub != null && hub.contains(location))
+                || (trophy != null && trophy.contains(location));
+        if (event.getSpawnReason() != CreatureSpawnEvent.SpawnReason.CUSTOM && protectedEventLocation) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onCraft(CraftItemEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        EventSession session = eventManager.session();
+        if (session != null && eventManager.isEventPlayer(player.getUniqueId())
+                && session.definition().type() != EventType.SKYWARS) {
+            event.setCancelled(true);
+            sendBlockedWarning(player, "blocked-crafting");
         }
     }
 
@@ -289,12 +318,7 @@ public final class EventRestrictionsListener implements Listener {
             event.setCancelled(true);
             return;
         }
-        if (session != null
-                && (session.definition().type() == EventType.CAPTURE_THE_FLAG
-                || session.definition().type() == EventType.BLOCK_PARTY
-                || session.definition().type() == EventType.QUAKE
-                || session.definition().type() == EventType.KNOCKBACK_FFA
-                || session.definition().type() == EventType.SPLEGG)
+        if (session != null && session.definition().type() != EventType.SKYWARS
                 && session.participants().contains(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
             return;

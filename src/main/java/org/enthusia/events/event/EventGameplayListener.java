@@ -14,13 +14,16 @@ import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.BlockState;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Rotatable;
+import org.bukkit.block.data.type.Bed;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Fireball;
 import org.bukkit.entity.IronGolem;
 import org.bukkit.entity.Item;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.entity.Silverfish;
@@ -36,6 +39,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.PotionMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.RayTraceResult;
+import org.bukkit.util.BoundingBox;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -125,6 +129,7 @@ public final class EventGameplayListener implements Listener {
     private final Map<UUID, Integer> raceCheckpointOrder = new HashMap<>();
     private final Map<UUID, Location> raceSafeLocation = new HashMap<>();
     private final Map<UUID, Long> elytraFinishWarningCooldowns = new HashMap<>();
+    private final Set<String> elytraCheckpointSurfaceBlocks = new HashSet<>();
     private final Map<UUID, String> ctfCarriers = new HashMap<>();
     private final Map<String, Integer> ctfScores = new HashMap<>();
     private final Map<String, BlockState> ctfOriginalFlagBlocks = new HashMap<>();
@@ -244,6 +249,42 @@ public final class EventGameplayListener implements Listener {
         restoreTimedBedWarsBeds();
     }
 
+    public void prepareSession(EventSession session) {
+        ensureSession(session);
+        if (session == null) {
+            return;
+        }
+        clearDroppedEventItems(session.selectedMap());
+        clearAmbientMobs(session.selectedMap());
+        elytraCheckpointSurfaceBlocks.clear();
+        if (session.definition().type() == EventType.ELYTRA_RACE && session.selectedMap() != null) {
+            session.selectedMap().checkpointBlocks().values().stream()
+                    .flatMap(List::stream)
+                    .filter(location -> location != null && location.getWorld() != null)
+                    .map(this::locationKey)
+                    .forEach(elytraCheckpointSurfaceBlocks::add);
+        }
+        if (session.definition().type() == EventType.BEDWARS) {
+            spawnConfiguredBedWarsBeds(session.selectedMap());
+        }
+    }
+
+    private void clearAmbientMobs(EventMap map) {
+        if (map == null || map.region() == null) {
+            return;
+        }
+        org.bukkit.World world = Bukkit.getWorld(map.region().worldName());
+        if (world == null) {
+            return;
+        }
+        CuboidRegion region = map.region();
+        BoundingBox bounds = new BoundingBox(
+                region.minX(), region.minY(), region.minZ(),
+                region.maxX() + 1.0D, region.maxY() + 1.0D, region.maxZ() + 1.0D);
+        world.getNearbyEntities(bounds, entity -> entity instanceof Mob)
+                .forEach(Entity::remove);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onMove(PlayerMoveEvent event) {
         EventSession session = eventManager.session();
@@ -272,7 +313,7 @@ public final class EventGameplayListener implements Listener {
             return;
         }
         if (type == EventType.CAPTURE_PLAYERS) {
-            handleCapturePlayersMove(event.getPlayer(), map, event.getTo());
+            handleCapturePlayersMove(event, map);
             return;
         }
         if (type == EventType.RED_LIGHT_GREEN_LIGHT) {
@@ -284,6 +325,9 @@ public final class EventGameplayListener implements Listener {
         }
         if (isRaceType(type)) {
             handleRaceMove(session, map, event.getPlayer(), event.getTo());
+            if (type == EventType.ELYTRA_RACE && touchesForbiddenElytraSurface(map, event.getPlayer(), event.getTo())) {
+                respawnRace(event.getPlayer(), map);
+            }
             return;
         }
 
@@ -351,14 +395,15 @@ public final class EventGameplayListener implements Listener {
         if (map != null && map.region() != null && map.region().contains(event.getBlock().getLocation())
                 && (type == EventType.SKYWARS || type == EventType.BEDWARS)) {
             if (type == EventType.BEDWARS) {
+                if (isBedBlock(event.getBlock().getType())) {
+                    handleBedWarsBedBreak(session, map, event);
+                    return;
+                }
                 if (!bedWarsPlacedBlocks.contains(locationKey(event.getBlock().getLocation()))) {
                     event.setCancelled(true);
                     return;
                 }
                 bedWarsPlacedBlocks.remove(locationKey(event.getBlock().getLocation()));
-            }
-            if (type == EventType.BEDWARS && isBedBlock(event.getBlock().getType())) {
-                handleBedWarsBedBreak(session, map, event);
             }
             return;
         }
@@ -902,9 +947,11 @@ public final class EventGameplayListener implements Listener {
         if (session == null || session.phase() != EventPhase.ACTIVE || !session.participants().contains(player.getUniqueId())) {
             return;
         }
-        event.setKeepInventory(true);
-        event.getDrops().clear();
-        event.setDroppedExp(0);
+        if (session.definition().type() != EventType.SKYWARS) {
+            event.setKeepInventory(true);
+            event.getDrops().clear();
+            event.setDroppedExp(0);
+        }
         Player killer = player.getKiller();
         if (session.definition().type() == EventType.ELYTRA_RACE) {
             player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Respawning at your last checkpoint.");
@@ -1109,6 +1156,7 @@ public final class EventGameplayListener implements Listener {
         raceCheckpointOrder.clear();
         raceSafeLocation.clear();
         elytraFinishWarningCooldowns.clear();
+        elytraCheckpointSurfaceBlocks.clear();
         ctfCarriers.clear();
         ctfScores.clear();
         restoreCaptureTheFlagBlocks();
@@ -2170,7 +2218,9 @@ public final class EventGameplayListener implements Listener {
         }
     }
 
-    private void handleCapturePlayersMove(Player player, EventMap map, Location to) {
+    private void handleCapturePlayersMove(PlayerMoveEvent event, EventMap map) {
+        Player player = event.getPlayer();
+        Location to = event.getTo();
         if (to == null) {
             return;
         }
@@ -2184,10 +2234,13 @@ public final class EventGameplayListener implements Listener {
         String playerTeam = session.teams().getOrDefault(player.getUniqueId(), "1");
         String jailTeam = capturePlayerJails.get(player.getUniqueId());
         if (jailTeam != null) {
+            player.setInvulnerable(false);
             CuboidRegion jail = teamArea(map, "jail", jailTeam);
             Location jailLocation = jail == null ? center(map.areas().get("jail-zone")) : center(jail);
             if (jailLocation != null && (jail == null || !jail.contains(to))) {
-                TeleportService.teleport(plugin, player, jailLocation, "capture players jail return");
+                event.setTo(jailLocation);
+                player.setFallDistance(0.0F);
+                player.setVelocity(new Vector(0, 0, 0));
             }
             return;
         }
@@ -2598,6 +2651,61 @@ public final class EventGameplayListener implements Listener {
         }
         raceSafeLocation.put(player.getUniqueId(), safe);
         return safe;
+    }
+
+    private boolean touchesForbiddenElytraSurface(EventMap map, Player player, Location location) {
+        if (location == null || location.getWorld() == null || isNearRaceSpawn(map, location)
+                || isNearRaceSafeLocation(player, location)) {
+            return false;
+        }
+        double halfWidth = Math.max(0.3D, player.getWidth() / 2.0D);
+        int minX = (int) Math.floor(location.getX() - halfWidth);
+        int maxX = (int) Math.floor(location.getX() + halfWidth);
+        int minY = (int) Math.floor(location.getY() - 0.1D);
+        int maxY = (int) Math.floor(location.getY() + player.getHeight());
+        int minZ = (int) Math.floor(location.getZ() - halfWidth);
+        int maxZ = (int) Math.floor(location.getZ() + halfWidth);
+        boolean touchedSolid = false;
+        boolean touchedCheckpoint = false;
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    Block block = location.getWorld().getBlockAt(x, y, z);
+                    if (!block.getType().isSolid()) {
+                        continue;
+                    }
+                    touchedSolid = true;
+                    if (isElytraCheckpointBlock(block.getLocation())) {
+                        touchedCheckpoint = true;
+                    }
+                }
+            }
+        }
+        return touchedSolid && !touchedCheckpoint;
+    }
+
+    private boolean isElytraCheckpointBlock(Location location) {
+        return location.getWorld() != null && elytraCheckpointSurfaceBlocks.contains(locationKey(location));
+    }
+
+    private boolean isNearRaceSafeLocation(Player player, Location location) {
+        Location safe = raceSafeLocation.get(player.getUniqueId());
+        return safe != null && sameWorld(safe, location)
+                && Math.abs(safe.getY() - location.getY()) <= 2.0D
+                && horizontalDistanceSquared(safe, location) <= 2.25D;
+    }
+
+    private boolean isNearRaceSpawn(EventMap map, Location location) {
+        return map.spawns().values().stream()
+                .filter(spawn -> sameWorld(spawn, location))
+                .anyMatch(spawn -> Math.abs(spawn.getY() - location.getY()) <= 3.0D
+                        && horizontalDistanceSquared(spawn, location) <= 4.0D);
+    }
+
+    private double horizontalDistanceSquared(Location left, Location right) {
+        double x = left.getX() - right.getX();
+        double z = left.getZ() - right.getZ();
+        return (x * x) + (z * z);
     }
 
     private void finishRace(Player player) {
@@ -3590,9 +3698,41 @@ public final class EventGameplayListener implements Listener {
         return material.name().endsWith("_BED");
     }
 
+    private void spawnConfiguredBedWarsBeds(EventMap map) {
+        if (map == null) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : map.pointBlockData().entrySet()) {
+            String key = entry.getKey().toLowerCase(Locale.ROOT);
+            Location footLocation = map.points().get(key);
+            if (!key.startsWith("bed-") || footLocation == null || footLocation.getWorld() == null) {
+                continue;
+            }
+            try {
+                BlockData parsed = Bukkit.createBlockData(entry.getValue());
+                if (!(parsed instanceof Bed savedBed)) {
+                    plugin.getLogger().warning("Skipping invalid BedWars bed data for " + map.id() + " / " + key + ".");
+                    continue;
+                }
+                Bed footData = (Bed) savedBed.clone();
+                footData.setPart(Bed.Part.FOOT);
+                Bed headData = (Bed) savedBed.clone();
+                headData.setPart(Bed.Part.HEAD);
+                Block foot = footLocation.getBlock();
+                Block head = foot.getRelative(savedBed.getFacing());
+                foot.setBlockData(footData, false);
+                head.setBlockData(headData, false);
+            } catch (IllegalArgumentException ex) {
+                plugin.getLogger().warning("Could not restore BedWars bed " + key + " on map " + map.id()
+                        + ": " + ex.getMessage());
+            }
+        }
+    }
+
     private void handleBedWarsBedBreak(EventSession session, EventMap map, BlockBreakEvent event) {
         String bedTeam = nearestBedTeam(map, event.getBlock().getLocation());
         if (bedTeam == null) {
+            event.setCancelled(true);
             return;
         }
         bedWarsPlacedBlocks.remove(locationKey(event.getBlock().getLocation()));
@@ -3601,6 +3741,15 @@ public final class EventGameplayListener implements Listener {
             event.setCancelled(true);
             event.getPlayer().sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + "You cannot break your own bed.");
             return;
+        }
+        event.setDropItems(false);
+        eventManager.recordArenaResetBlock(event.getBlock());
+        if (event.getBlock().getBlockData() instanceof Bed bed) {
+            Block otherHalf = event.getBlock().getRelative(
+                    bed.getPart() == Bed.Part.FOOT ? bed.getFacing() : bed.getFacing().getOppositeFace());
+            if (isBedBlock(otherHalf.getType())) {
+                eventManager.recordArenaResetBlock(otherHalf);
+            }
         }
         if (!brokenBedTeams.contains(bedTeam)) {
             brokenBedTeams.add(bedTeam);

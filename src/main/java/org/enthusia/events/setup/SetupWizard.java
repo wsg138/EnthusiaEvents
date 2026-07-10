@@ -9,6 +9,7 @@ import org.bukkit.Particle;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.type.Bed;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.inventory.ItemStack;
@@ -433,6 +434,10 @@ public final class SetupWizard {
             }
             case POINT -> {
                 String key = pointId(player, map, blockLocation, selection.value());
+                if (map.eventType() == EventType.BEDWARS && key.startsWith("bed-")) {
+                    saveBedPoint(player, map, clickedBlock, key);
+                    return;
+                }
                 Location previous = map.points().get(key);
                 Location stored = key.startsWith("flag-") ? flagBlockLocation(player, blockLocation) : topCenter;
                 map.points().put(key, stored);
@@ -703,6 +708,38 @@ public final class SetupWizard {
         return item;
     }
 
+    private void saveBedPoint(Player player, EventMap map, Block clickedBlock, String key) {
+        if (!(clickedBlock.getBlockData() instanceof Bed clickedBed)) {
+            plugin.messages().send(player, "setup-failed", Map.of(
+                    "reason", "click an actual placed bed; its material and direction will be saved"
+            ));
+            return;
+        }
+        Block footBlock = clickedBed.getPart() == Bed.Part.FOOT
+                ? clickedBlock
+                : clickedBlock.getRelative(clickedBed.getFacing().getOppositeFace());
+        if (!(footBlock.getBlockData() instanceof Bed footBed)) {
+            plugin.messages().send(player, "setup-failed", Map.of("reason", "the bed foot block could not be found"));
+            return;
+        }
+        String normalizedKey = key.toLowerCase(Locale.ROOT);
+        Location previous = map.points().get(normalizedKey);
+        String previousData = map.pointBlockData().get(normalizedKey);
+        Location stored = footBlock.getLocation().clone();
+        stored.setYaw(player.getLocation().getYaw());
+        stored.setPitch(0.0F);
+        String serialized = footBed.getAsString();
+        map.points().put(normalizedKey, stored);
+        map.pointBlockData().put(normalizedKey, serialized);
+        mapSetupService.save();
+        record(player, SetupAction.mapLocationWithBlockData(
+                SetupTool.POINT, normalizedKey, previous, stored.clone(), previousData));
+        plugin.messages().send(player, "setup-click-saved", Map.of(
+                "target", friendlyKey(normalizedKey) + " (" + footBlock.getType().name().toLowerCase(Locale.ROOT)
+                        + ", facing " + footBed.getFacing().name().toLowerCase(Locale.ROOT) + ")"
+        ));
+    }
+
     private Optional<ToolSelection> selectionFromHeldItem(Player player) {
         ItemStack item = player.getInventory().getItemInMainHand();
         if (!item.hasItemMeta()) {
@@ -727,7 +764,12 @@ public final class SetupWizard {
         removeLocation(map.spawns(), location, "spawn", removedNames);
         removeLocation(map.checkpoints(), location, "checkpoint", removedNames);
         removeLocationList(map.checkpointBlocks(), location, "checkpoint {key} block", removedNames);
+        List<String> removedPointKeys = map.points().entrySet().stream()
+                .filter(entry -> matchesClickedBlock(entry.getValue(), location))
+                .map(Map.Entry::getKey)
+                .toList();
         removeLocation(map.points(), location, "point", removedNames);
+        removedPointKeys.forEach(map.pointBlockData()::remove);
         removeArea(map.areas(), location, removedNames);
         removeLocationList(map.chests(), location, "tier {key} chest", removedNames);
         removeLocationList(map.generators(), location, "{key} generator", removedNames);
@@ -826,7 +868,14 @@ public final class SetupWizard {
             case CHECKPOINT_BLOCK -> map.checkpointBlocks().getOrDefault(action.key(), new ArrayList<>())
                     .removeIf(location -> sameBlock(location, action.current()));
             case CHECKPOINT_SPAWN -> restoreMapLocation(map.points(), action);
-            case POINT -> restoreMapLocation(map.points(), action);
+            case POINT -> {
+                restoreMapLocation(map.points(), action);
+                if (action.previousBlockData() == null) {
+                    map.pointBlockData().remove(action.key());
+                } else {
+                    map.pointBlockData().put(action.key(), action.previousBlockData());
+                }
+            }
             case AREA -> restoreMapArea(map.areas(), action);
             case SPECTATOR -> map.spectatorSpawn(action.previous());
             case CHEST -> map.chests().getOrDefault(Integer.parseInt(action.key()), new ArrayList<>()).removeIf(location -> sameBlock(location, action.current()));
@@ -1093,7 +1142,11 @@ public final class SetupWizard {
                 key.toLowerCase(Locale.ROOT).startsWith("finish") ? Material.EMERALD_BLOCK : Material.GOLD_BLOCK, 5));
         map.checkpointBlocks().values().forEach(locations ->
                 locations.forEach(location -> markVisualOnly(player, location, Material.GOLD_BLOCK, 5)));
-        map.points().forEach((key, location) -> markVisualOnly(player, location, pointMarker(key), 5));
+        map.points().forEach((key, location) -> {
+            if (!key.toLowerCase(Locale.ROOT).startsWith("bed-")) {
+                markVisualOnly(player, location, pointMarker(key), 5);
+            }
+        });
         map.chests().forEach((tier, locations) -> locations.forEach(location -> markVisualOnly(player, location, chestMarker(tier), 5)));
         map.generators().forEach((type, locations) -> locations.forEach(location -> markVisualOnly(player, location, generatorMarker(type), 5)));
         map.areas().forEach((key, area) -> {
@@ -1428,21 +1481,26 @@ public final class SetupWizard {
     }
 
     private record SetupAction(SetupTool tool, String key, Location previous, Location current, Location markerBlock,
-                               CuboidRegion previousArea, CuboidRegion currentArea) {
+                               CuboidRegion previousArea, CuboidRegion currentArea, String previousBlockData) {
         static SetupAction pos(SetupTool tool, Location previous, Location current, Location markerBlock) {
-            return new SetupAction(tool, tool.name().toLowerCase(Locale.ROOT), previous, current, markerBlock, null, null);
+            return new SetupAction(tool, tool.name().toLowerCase(Locale.ROOT), previous, current, markerBlock, null, null, null);
         }
 
         static SetupAction mapLocation(SetupTool tool, String key, Location previous, Location current, Location markerBlock) {
-            return new SetupAction(tool, key, previous, current, markerBlock, null, null);
+            return new SetupAction(tool, key, previous, current, markerBlock, null, null, null);
+        }
+
+        static SetupAction mapLocationWithBlockData(SetupTool tool, String key, Location previous, Location current,
+                                                    String previousBlockData) {
+            return new SetupAction(tool, key, previous, current, null, null, null, previousBlockData);
         }
 
         static SetupAction listLocation(SetupTool tool, String key, Location current, Location markerBlock) {
-            return new SetupAction(tool, key, null, current, markerBlock, null, null);
+            return new SetupAction(tool, key, null, current, markerBlock, null, null, null);
         }
 
         static SetupAction area(String key, CuboidRegion previous, CuboidRegion current, Location markerBlock) {
-            return new SetupAction(SetupTool.AREA, key, null, null, markerBlock, previous, current);
+            return new SetupAction(SetupTool.AREA, key, null, null, markerBlock, previous, current, null);
         }
 
         String describe() {

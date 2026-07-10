@@ -65,12 +65,17 @@ Admin commands:
 - `/ee emergencyrestore <player>`
 - `/ee setup <event> <mapId> <tool...>`
 - `/ee map <create|list|tp|status|export|exportall|transfer|retarget|...>`
+- `/ee map clear <event> <mapId> <section> [confirm]`
 
 The standalone `/setup` command is intentionally not registered. Use `/ee setup` so setup access stays inside the admin command surface.
 
 ## Setup Data
 
 Map setup and runtime configuration are stored under the plugin data folder. Map data should be treated as release data, not throwaway config, because it contains regions, spawns, checkpoints, generators, finish lines, release walls, shops, and other event-specific points.
+
+Use `map clear` to redo one part of a configured map. Supported sections include `region`, `spectator`, `spawns`, `finishes`, `checkpoints`, `checkpoint-blocks`, `points`, `beds`, `shops`, `areas`, `chests`, `generators`, and `all`. Clearing `all` requires the final `confirm` argument and keeps the map ID and target world intact.
+
+BedWars beds are configured from the team-tools page by clicking the actual placed bed. Its material and facing are saved and the complete bed is rebuilt before each match. Legacy marker-only bed entries must be configured again.
 
 Before release:
 

@@ -115,9 +115,16 @@ public final class MapSetupService {
             if (map.generators().getOrDefault("emerald", List.of()).isEmpty()) {
                 errors.add("at least one BedWars emerald generator is required");
             }
-            if (map.points().keySet().stream().noneMatch(key -> key.startsWith("bed"))) {
+            if (map.points().keySet().stream().noneMatch(key -> key.startsWith("bed-")
+                    && map.pointBlockData().containsKey(key))) {
                 errors.add("at least one BedWars bed is required");
             }
+            map.spawns().keySet().stream()
+                    .filter(key -> key.startsWith("team-") && key.endsWith("-spawn"))
+                    .map(key -> key.substring("team-".length(), key.length() - "-spawn".length()))
+                    .filter(team -> !map.points().containsKey("bed-" + team)
+                            || !map.pointBlockData().containsKey("bed-" + team))
+                    .forEach(team -> errors.add("BedWars team " + team + " bed is required"));
             if (map.points().keySet().stream().noneMatch(key -> key.startsWith("item-shop"))) {
                 errors.add("at least one BedWars item shop is required");
             }
@@ -181,6 +188,120 @@ public final class MapSetupService {
                 .flatMap(eventMaps -> eventMaps.values().stream())
                 .sorted(Comparator.comparing(EventMap::id, String.CASE_INSENSITIVE_ORDER))
                 .toList();
+    }
+
+    public boolean isConfiguredMapWorld(String worldName) {
+        return worldName != null && maps.values().stream()
+                .flatMap(eventMaps -> eventMaps.values().stream())
+                .map(EventMap::worldName)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(worldName::equalsIgnoreCase);
+    }
+
+    public int clearMapSection(EventMap map, String requestedSection) {
+        if (map == null || requestedSection == null) {
+            return 0;
+        }
+        String section = requestedSection.toLowerCase(Locale.ROOT).replace('_', '-');
+        int removed = switch (section) {
+            case "all" -> clearAllSetup(map);
+            case "region", "borders", "border" -> clearRegion(map);
+            case "spectator", "spectator-spawn" -> clearSpectator(map);
+            case "spawn", "spawns", "start", "starts", "start-spots" -> clearMap(map.spawns());
+            case "finish", "finishes", "finish-spots" -> clearFinishes(map);
+            case "checkpoint", "checkpoints" -> clearCheckpoints(map);
+            case "checkpoint-blocks" -> clearNestedMap(map.checkpointBlocks());
+            case "point", "points" -> clearPoints(map);
+            case "bed", "beds", "bed-spawns" -> clearPointsByPrefix(map, List.of("bed-"));
+            case "shop", "shops" -> clearPointsByPrefix(map, List.of("item-shop", "upgrade-shop", "team-shop"));
+            case "area", "areas" -> clearMap(map.areas());
+            case "chest", "chests" -> clearNestedMap(map.chests());
+            case "generator", "generators", "gens" -> clearNestedMap(map.generators());
+            default -> -1;
+        };
+        if (removed >= 0) {
+            save();
+        }
+        return removed;
+    }
+
+    private int clearAllSetup(EventMap map) {
+        int removed = clearRegion(map) + clearSpectator(map);
+        removed += clearMap(map.spawns());
+        removed += clearMap(map.checkpoints());
+        removed += clearNestedMap(map.checkpointBlocks());
+        removed += clearPoints(map);
+        removed += clearMap(map.areas());
+        removed += clearNestedMap(map.chests());
+        removed += clearNestedMap(map.generators());
+        return removed;
+    }
+
+    private int clearRegion(EventMap map) {
+        if (map.region() == null) {
+            return 0;
+        }
+        map.region(null);
+        return 1;
+    }
+
+    private int clearSpectator(EventMap map) {
+        if (map.spectatorSpawn() == null) {
+            return 0;
+        }
+        map.spectatorSpawn(null);
+        return 1;
+    }
+
+    private int clearFinishes(EventMap map) {
+        int removed = removeKeys(map.checkpoints(), key -> key.startsWith("finish"));
+        removed += removeKeys(map.areas(), key -> key.startsWith("finish"));
+        return removed;
+    }
+
+    private int clearCheckpoints(EventMap map) {
+        int removed = removeKeys(map.checkpoints(), key -> !key.startsWith("finish"));
+        removed += clearNestedMap(map.checkpointBlocks());
+        removed += removeKeys(map.points(), key -> key.startsWith("checkpoint-spawn-"));
+        return removed;
+    }
+
+    private int clearPoints(EventMap map) {
+        int removed = map.points().size();
+        map.points().clear();
+        map.pointBlockData().clear();
+        return removed;
+    }
+
+    private int clearPointsByPrefix(EventMap map, List<String> prefixes) {
+        List<String> keys = map.points().keySet().stream()
+                .filter(key -> prefixes.stream().anyMatch(key.toLowerCase(Locale.ROOT)::startsWith))
+                .toList();
+        keys.forEach(key -> {
+            map.points().remove(key);
+            map.pointBlockData().remove(key);
+        });
+        return keys.size();
+    }
+
+    private <K, V> int clearMap(Map<K, V> values) {
+        int removed = values.size();
+        values.clear();
+        return removed;
+    }
+
+    private <K, V> int clearNestedMap(Map<K, List<V>> values) {
+        int removed = values.values().stream().mapToInt(List::size).sum();
+        values.clear();
+        return removed;
+    }
+
+    private <V> int removeKeys(Map<String, V> values, java.util.function.Predicate<String> predicate) {
+        List<String> keys = values.keySet().stream()
+                .filter(key -> predicate.test(key.toLowerCase(Locale.ROOT)))
+                .toList();
+        keys.forEach(values::remove);
+        return keys.size();
     }
 
     public EventMap quickSetup(EventType eventType, String id, Location center, int radius) {
@@ -263,6 +384,9 @@ public final class MapSetupService {
                 }
                 for (Map.Entry<String, Location> point : map.points().entrySet()) {
                     yaml.set(path + ".points." + point.getKey(), LocationCodec.encode(point.getValue()));
+                }
+                for (Map.Entry<String, String> blockData : map.pointBlockData().entrySet()) {
+                    yaml.set(path + ".point-block-data." + blockData.getKey(), blockData.getValue());
                 }
                 for (Map.Entry<String, CuboidRegion> area : map.areas().entrySet()) {
                     yaml.set(path + ".areas." + area.getKey() + ".world", area.getValue().worldName());
@@ -358,6 +482,8 @@ public final class MapSetupService {
                 loadLocations(mapSection.getConfigurationSection("checkpoints"), map.checkpoints());
                 loadCheckpointBlocks(mapSection.getConfigurationSection("checkpoint-blocks"), map);
                 loadLocations(mapSection.getConfigurationSection("points"), map.points());
+                loadStrings(mapSection.getConfigurationSection("point-block-data"), map.pointBlockData());
+                removeLegacyBedPoints(map);
                 loadAreas(mapSection.getConfigurationSection("areas"), map);
                 loadChestLocations(mapSection.getConfigurationSection("chests"), map);
                 loadGeneratorLocations(mapSection.getConfigurationSection("generators"), map);
@@ -373,6 +499,34 @@ public final class MapSetupService {
         for (String key : new ArrayList<>(section.getKeys(false))) {
             target.put(key, LocationCodec.decode(section.getString(key, "")));
         }
+    }
+
+    private void loadStrings(ConfigurationSection section, Map<String, String> target) {
+        if (section == null) {
+            return;
+        }
+        for (String key : section.getKeys(false)) {
+            String value = section.getString(key);
+            if (value != null && !value.isBlank()) {
+                target.put(key.toLowerCase(Locale.ROOT), value);
+            }
+        }
+    }
+
+    private void removeLegacyBedPoints(EventMap map) {
+        if (map.eventType() != EventType.BEDWARS) {
+            return;
+        }
+        List<String> legacyKeys = map.points().keySet().stream()
+                .filter(key -> key.toLowerCase(Locale.ROOT).startsWith("bed-"))
+                .filter(key -> !map.pointBlockData().containsKey(key.toLowerCase(Locale.ROOT)))
+                .toList();
+        if (legacyKeys.isEmpty()) {
+            return;
+        }
+        legacyKeys.forEach(map.points()::remove);
+        plugin.getLogger().warning("Cleared " + legacyKeys.size() + " legacy BedWars bed marker(s) from map "
+                + map.id() + ". Reconfigure them by clicking the actual beds in /ee setup.");
     }
 
     private void loadChestLocations(ConfigurationSection section, EventMap map) {

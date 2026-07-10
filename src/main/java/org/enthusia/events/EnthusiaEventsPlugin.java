@@ -114,6 +114,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         scheduler = new EventScheduler(this, eventManager);
         gameplayListener = new EventGameplayListener(this, eventManager);
         eventManager.gameplayRuntimeReset(gameplayListener::resetForNewSession);
+        eventManager.gameplayPreStart(gameplayListener::prepareSession);
         setupWizard = new SetupWizard(this, mapSetupService);
         chatEventService = new ChatEventService(this, economy);
         specAuditRegistry = new EventSpecAuditRegistry(this, eventRegistry, mapSetupService);

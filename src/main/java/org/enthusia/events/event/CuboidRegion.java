@@ -42,8 +42,8 @@ public record CuboidRegion(
         double x = location.getX();
         double y = location.getY();
         double z = location.getZ();
-        return x >= minX && x <= maxX
-                && y >= minY && y <= maxY
-                && z >= minZ && z <= maxZ;
+        return x >= minX && x < maxX + 1.0D
+                && y >= minY && y < maxY + 1.0D
+                && z >= minZ && z < maxZ + 1.0D;
     }
 }

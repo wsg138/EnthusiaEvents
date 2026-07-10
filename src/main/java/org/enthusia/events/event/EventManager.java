@@ -108,6 +108,8 @@ public final class EventManager {
     };
     private Runnable gameplayRuntimeReset = () -> {
     };
+    private Consumer<EventSession> gameplayPreStart = ignored -> {
+    };
     private EventScoreboardService scoreboardService;
     private ArenaResetService arenaResetService;
     private PodiumService podiumService;
@@ -279,6 +281,11 @@ public final class EventManager {
     public void gameplayRuntimeReset(Runnable gameplayRuntimeReset) {
         this.gameplayRuntimeReset = gameplayRuntimeReset == null ? () -> {
         } : gameplayRuntimeReset;
+    }
+
+    public void gameplayPreStart(Consumer<EventSession> gameplayPreStart) {
+        this.gameplayPreStart = gameplayPreStart == null ? ignored -> {
+        } : gameplayPreStart;
     }
 
     public void recordArenaResetBlock(Block block) {
@@ -681,6 +688,9 @@ public final class EventManager {
         restoreScoreboard(player);
         unmarkEventPlayer(player);
         if (wasParticipant && session.phase() == EventPhase.ACTIVE) {
+            if (handleBracketQuit(player.getUniqueId())) {
+                return;
+            }
             if (session.participants().isEmpty()) {
                 cancelTask();
                 scheduleEndActiveEvent(List.of(), 0L);
@@ -688,6 +698,77 @@ public final class EventManager {
                 scheduleEndActiveEvent(List.copyOf(session.participants()), 60L);
             }
         }
+    }
+
+    private boolean handleBracketQuit(UUID quitter) {
+        if (session == null || !isBracketEvent(session.definition().type())) {
+            return false;
+        }
+        bracketQueue.remove(quitter);
+        bracketTeamQueue.forEach(team -> team.remove(quitter));
+        bracketTeamQueue.removeIf(List::isEmpty);
+        if (!bracketContestants.remove(quitter)) {
+            bracketTeamByPlayer.remove(quitter);
+            return false;
+        }
+        if (isTeamBracketEvent(session.definition().type())) {
+            resolveTeamBracketQuit(quitter);
+        } else {
+            resolveSoloBracketQuit();
+        }
+        bracketTeamByPlayer.remove(quitter);
+        return true;
+    }
+
+    private void resolveSoloBracketQuit() {
+        UUID winnerId = bracketContestants.stream()
+                .filter(session.participants()::contains)
+                .findFirst()
+                .orElse(null);
+        bracketContestants.clear();
+        if (winnerId != null) {
+            bracketQueue.add(winnerId);
+            prepareBracketWinnerForNextMatch(winnerId);
+        }
+        scheduleNextBracketMatch();
+    }
+
+    private void resolveTeamBracketQuit(UUID quitter) {
+        List<UUID> losingTeam = bracketTeamByPlayer.getOrDefault(quitter, List.of(quitter));
+        boolean teammateAlive = losingTeam.stream()
+                .filter(uuid -> !uuid.equals(quitter))
+                .anyMatch(uuid -> bracketContestants.contains(uuid) && session.participants().contains(uuid));
+        if (teammateAlive) {
+            return;
+        }
+        List<UUID> winningTeam = bracketContestants.stream()
+                .filter(uuid -> !losingTeam.contains(uuid) && session.participants().contains(uuid))
+                .map(uuid -> bracketTeamByPlayer.getOrDefault(uuid, List.of(uuid)))
+                .findFirst()
+                .orElse(List.of());
+        bracketContestants.clear();
+        List<UUID> onlineWinners = winningTeam.stream()
+                .filter(session.participants()::contains)
+                .filter(uuid -> Bukkit.getPlayer(uuid) != null)
+                .toList();
+        if (!onlineWinners.isEmpty()) {
+            registerBracketTeam(onlineWinners);
+            bracketTeamQueue.add(new ArrayList<>(onlineWinners));
+            onlineWinners.forEach(this::prepareBracketWinnerForNextMatch);
+        }
+        scheduleNextBracketMatch();
+    }
+
+    private void prepareBracketWinnerForNextMatch(UUID winnerId) {
+        Player winner = Bukkit.getPlayer(winnerId);
+        if (winner == null) {
+            return;
+        }
+        winner.setHealth(winner.getMaxHealth());
+        winner.setFoodLevel(20);
+        winner.setFireTicks(0);
+        winner.setGameMode(GameMode.SPECTATOR);
+        spawnLocked.remove(winnerId);
     }
 
     public void handleJoin(Player player) {
@@ -1107,6 +1188,7 @@ public final class EventManager {
         spawnLocked.clear();
         session.teams().clear();
         EventMap map = session.selectedMap();
+        gameplayPreStart.accept(session);
         if ((session.definition().type() == EventType.BOAT_RACE || session.definition().type() == EventType.PARKOUR
                 || session.definition().type() == EventType.HORSE_RACE)
                 && boatRaceService != null) {
@@ -1137,6 +1219,8 @@ public final class EventManager {
                     }));
                     if (!canMoveDuringPreStart(session.definition().type())) {
                         spawnLocked.add(uuid);
+                        player.setAllowFlight(true);
+                        player.setFlying(false);
                     }
                 }
                 index++;
@@ -1206,7 +1290,15 @@ public final class EventManager {
             return;
         }
         cancelPreStartTask();
+        Set<UUID> lockedPlayers = Set.copyOf(spawnLocked);
         spawnLocked.clear();
+        for (UUID uuid : lockedPlayers) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null && player.getGameMode() != GameMode.SPECTATOR) {
+                player.setFlying(false);
+                player.setAllowFlight(false);
+            }
+        }
         session.phase(EventPhase.ACTIVE);
         clearCountdownExperience();
         playGoSound();

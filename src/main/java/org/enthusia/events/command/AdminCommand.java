@@ -287,17 +287,26 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return filter(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("map")) {
-            return filter(args[1], List.of("create", "pos1", "pos2", "region", "spawn", "spectator", "checkpoint", "list", "tp", "retarget", "status", "transfer", "transferall", "export", "exporthub", "exporttrophy", "exportglobal", "exportall"));
+            return filter(args[1], List.of("create", "clear", "pos1", "pos2", "region", "spawn", "spectator", "checkpoint", "list", "tp", "retarget", "status", "transfer", "transferall", "export", "exporthub", "exporttrophy", "exportglobal", "exportall"));
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("map")) {
             return filter(args[2], List.of(EventType.values()).stream().map(Enum::name).toList());
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("map")
-                && (args[1].equalsIgnoreCase("transfer") || args[1].equalsIgnoreCase("export") || args[1].equalsIgnoreCase("retarget"))) {
+                && (args[1].equalsIgnoreCase("transfer") || args[1].equalsIgnoreCase("export")
+                || args[1].equalsIgnoreCase("retarget") || args[1].equalsIgnoreCase("clear"))) {
             EventType type = parseEventSilently(args[2]);
             if (type != null) {
                 return filter(args[3], mapSetupService.mapsFor(type).stream().map(EventMap::id).toList());
             }
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("map") && args[1].equalsIgnoreCase("clear")) {
+            return filter(args[4], List.of("all", "region", "spectator", "spawns", "finishes", "checkpoints",
+                    "checkpoint-blocks", "points", "beds", "shops", "areas", "chests", "generators"));
+        }
+        if (args.length == 6 && args[0].equalsIgnoreCase("map") && args[1].equalsIgnoreCase("clear")
+                && args[4].equalsIgnoreCase("all")) {
+            return filter(args[5], List.of("confirm"));
         }
         if (args.length == 5 && args[0].equalsIgnoreCase("map") && args[1].equalsIgnoreCase("retarget")) {
             return filter(args[4], Bukkit.getWorlds().stream().map(World::getName).toList());
@@ -484,6 +493,44 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
         }
         String sub = args[1].toLowerCase(Locale.ROOT);
         switch (sub) {
+            case "clear" -> {
+                if (args.length < 5) {
+                    sender.sendMessage("/ee map clear <EVENT> <mapId> <all|region|spectator|spawns|finishes|checkpoints|checkpoint-blocks|points|beds|shops|areas|chests|generators> [confirm]");
+                    return true;
+                }
+                if (eventManager.session() != null) {
+                    plugin.messages().send(sender, "setup-failed", Map.of(
+                            "reason", "stop the active event session before clearing map setup"
+                    ));
+                    return true;
+                }
+                EventType type = parseEvent(sender, args[2]);
+                if (type == null) {
+                    return true;
+                }
+                Optional<EventMap> map = mapSetupService.find(type, args[3]);
+                if (map.isEmpty()) {
+                    plugin.messages().send(sender, "setup-failed", Map.of("reason", "map not found"));
+                    return true;
+                }
+                String section = args[4].toLowerCase(Locale.ROOT);
+                if (section.equals("all") && (args.length < 6 || !args[5].equalsIgnoreCase("confirm"))) {
+                    plugin.messages().send(sender, "map-clear-confirm", Map.of(
+                            "event", type.name(), "map", map.get().id()
+                    ));
+                    return true;
+                }
+                int removed = mapSetupService.clearMapSection(map.get(), section);
+                if (removed < 0) {
+                    plugin.messages().send(sender, "setup-failed", Map.of("reason", "unknown setup section: " + section));
+                    return true;
+                }
+                plugin.messages().send(sender, "map-clear-done", Map.of(
+                        "event", type.name(), "map", map.get().id(), "section", section,
+                        "count", String.valueOf(removed)
+                ));
+                return true;
+            }
             case "create" -> {
                 if (!(sender instanceof Player player) || args.length < 4) {
                     if (!(sender instanceof Player)) {

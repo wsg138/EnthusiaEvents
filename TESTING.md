@@ -2,6 +2,28 @@
 
 Use this for the final player test before moving from the test server to the live server.
 
+## Latest Gameplay And Setup Fixes
+
+- [ ] Natural mobs do not spawn in configured event-map worlds, the event hub, or the trophy room; BedWars shops, BedWars utility mobs, Boat Race boats, and Horse Race horses still spawn.
+- [ ] Crafting is blocked for event players in every event except SkyWars.
+- [ ] Manual item dropping is blocked in every event except SkyWars.
+- [ ] Player deaths keep and clear event items in every event except SkyWars; SkyWars deaths drop inventory normally.
+- [ ] No event kit, armor, or manually dropped item can be duplicated or carried into a later event.
+- [ ] BedWars setup rejects marker blocks and saves an actual bed's color and facing for each team.
+- [ ] Legacy BedWars bed markers are cleared on load and setup validation requires every configured team spawn to have a real saved bed.
+- [ ] BedWars rebuilds both halves of every configured bed before teleporting players into the match.
+- [ ] Enemy BedWars beds break without dropping bed items; own beds and unconfigured beds cannot be broken.
+- [ ] Elytra Race allows solid contact at checkpoint blocks and the current safe respawn/start, but touching or standing on other terrain returns the player to the latest checkpoint.
+- [ ] Capture Players prisoners cannot walk out of their jail and do not remain invulnerable while jailed.
+- [ ] Fight 1v1 contestants remain held for prestart without a flying kick, then lose temporary flight permission at Go.
+- [ ] Fight kits and armor cannot be dropped to reproduce the reported armor duplicate.
+- [ ] Sumo 1v1 and 2v2 brackets continue correctly if a current contestant, teammate, or queued player disconnects.
+- [ ] Boat Race boats are pushed back toward the surface only when fully submerged and no longer occasionally continue sinking.
+- [ ] `/ee map clear <EVENT> <mapId> beds` clears only saved beds.
+- [ ] `/ee map clear <EVENT> <mapId> spawns` and `finishes` clear only their requested setup entries.
+- [ ] `/ee map clear <EVENT> <mapId> all` warns without changing data until the final `confirm` argument is supplied.
+- [ ] Full map clear keeps the map ID and world assignment so setup can be redone in place.
+
 ## Latest Fixes To Test
 
 - [ ] Elytra Race restores each player's original max health after finish, leave, relog restore, `/ee restore`, `/ee emergencyrestore`, and `/ee forcestop`.

@@ -206,6 +206,9 @@ public final class BoatRaceService implements Listener {
         if (!isRaceBoat(event.getVehicle())) {
             return;
         }
+        if (event.getVehicle() instanceof Boat boat) {
+            stabilizeSubmergedBoat(boat);
+        }
         EventSession session = eventManager.session();
         if (session == null || session.phase() != EventPhase.ACTIVE || session.definition().type() != EventType.BOAT_RACE) {
             return;
@@ -235,6 +238,19 @@ public final class BoatRaceService implements Listener {
             }
             eventManager.finishParticipant(player);
         }
+    }
+
+    private void stabilizeSubmergedBoat(Boat boat) {
+        Block current = boat.getLocation().getBlock();
+        Block above = current.getRelative(0, 1, 0);
+        if (!current.isLiquid() || !above.isLiquid()) {
+            return;
+        }
+        Vector velocity = boat.getVelocity();
+        if (velocity.getY() < 0.12D) {
+            boat.setVelocity(velocity.setY(0.12D));
+        }
+        boat.setFallDistance(0.0F);
     }
 
     private void recordBoatCheckpoint(Player player, EventMap map, Location location) {
