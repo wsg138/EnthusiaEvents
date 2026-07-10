@@ -565,7 +565,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             }
             return true;
         }
-        if (args.length < 4) {
+        if (args.length < 3) {
             sender.sendMessage("/ee setup <EVENT> <mapId> <pos1|pos2|spawn|spectator|checkpoint|checkpoint_spawn|finish|chest|generator|point|area_pos1|area_pos2|area> [name|tier|type]");
             return true;
         }
@@ -575,6 +575,10 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
         }
         if (mapSetupService.find(eventType, args[2]).isEmpty()) {
             plugin.messages().send(sender, "setup-failed", Map.of("reason", "map not found; run /ee map create first"));
+            return true;
+        }
+        if (args.length == 3) {
+            setupWizard.openPalette(player, eventType, args[2]);
             return true;
         }
         SetupTool tool;

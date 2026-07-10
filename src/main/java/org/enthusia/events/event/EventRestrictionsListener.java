@@ -318,7 +318,7 @@ public final class EventRestrictionsListener implements Listener {
             event.setCancelled(true);
             return;
         }
-        if (session != null && session.definition().type() != EventType.SKYWARS
+        if (session != null && !allowsEventItemDrops(session.definition().type())
                 && session.participants().contains(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
             return;
@@ -371,6 +371,15 @@ public final class EventRestrictionsListener implements Listener {
 
     private boolean allowsEventPearls(EventType type) {
         return type == EventType.SKYWARS || type == EventType.KNOCKBACK_FFA || type == EventType.BEDWARS;
+    }
+
+    private boolean allowsEventItemDrops(EventType type) {
+        return type == EventType.SKYWARS
+                || type == EventType.BEDWARS
+                || type == EventType.CAPTURE_THE_FLAG
+                || type == EventType.FIGHT_1V1
+                || type == EventType.FIGHT_2V2
+                || type == EventType.FIGHT_FFA;
     }
 
     @EventHandler(ignoreCancelled = true)

@@ -77,6 +77,13 @@ Use `map clear` to redo one part of a configured map. Supported sections include
 
 BedWars beds are configured from the team-tools page by clicking the actual placed bed. Its material and facing are saved and the complete bed is rebuilt before each match. Legacy marker-only bed entries must be configured again.
 
+To reconfigure an existing map, use `/ee eventtp <event> <mapId>`, clear only the affected saved data, then reopen the palette with `/ee setup <event> <mapId>`. For example:
+
+- BedWars beds: `/ee map clear BEDWARS <mapId> beds`, then `/ee setup BEDWARS <mapId>`.
+- Horse Race checkpoints: `/ee map clear HORSE_RACE <mapId> checkpoints`, then `/ee setup HORSE_RACE <mapId>`.
+- Capture the Flag spawns: `/ee map clear CAPTURE_THE_FLAG <mapId> spawns`, then `/ee setup CAPTURE_THE_FLAG <mapId>`.
+- Fight 1v1 complete setup reset: `/ee eventtp FIGHT_1V1 <mapId>`, `/ee map clear FIGHT_1V1 <mapId> all confirm`, then `/ee setup FIGHT_1V1 <mapId>`.
+
 Before release:
 
 - Confirm `/ee autostart status` is `off`.

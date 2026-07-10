@@ -4,9 +4,20 @@ Use this for the final player test before moving from the test server to the liv
 
 ## Latest Gameplay And Setup Fixes
 
+- [ ] `/ee setup <EVENT> <mapId>` opens that map's setup palette; no extra tool argument is needed.
+- [ ] BedWars reconfiguration: `/ee eventtp BEDWARS <mapId>`, `/ee map clear BEDWARS <mapId> beds`, then `/ee setup BEDWARS <mapId>` lets staff save actual beds again.
+- [ ] Horse Race reconfiguration: `/ee eventtp HORSE_RACE <mapId>`, `/ee map clear HORSE_RACE <mapId> checkpoints`, then `/ee setup HORSE_RACE <mapId>` lets staff rebuild checkpoints.
+- [ ] Capture the Flag reconfiguration: `/ee eventtp CAPTURE_THE_FLAG <mapId>`, `/ee map clear CAPTURE_THE_FLAG <mapId> spawns`, then `/ee setup CAPTURE_THE_FLAG <mapId>` lets staff reset team spawns.
+- [ ] Fight 1v1 reconfiguration: `/ee eventtp FIGHT_1V1 <mapId>`, `/ee map clear FIGHT_1V1 <mapId> all confirm`, then `/ee setup FIGHT_1V1 <mapId>` clears that map's saved setup without deleting its world.
+- [ ] CTF, Fight 1v1/2v2/FFA, BedWars, and SkyWars allow players to drop items; other active event modes block manual item drops.
+- [ ] BedWars death transfers resources directly to the killer and queues overflow for later inventory delivery instead of dropping transfer loot on the ground.
+- [ ] Lethal event damage never opens the vanilla death screen or increments Minecraft death statistics during a normal event path.
+- [ ] SkyWars simulated deaths drop the player's inventory and armor normally, then immediately move the player to event spectator state.
+- [ ] Elytra Race lethal damage immediately returns the player to their last checkpoint without a death screen.
+- [ ] Fight, Spleef, Splegg, and Hot Potato lethal damage immediately eliminates the player without a vanilla death screen.
 - [ ] Natural mobs do not spawn in configured event-map worlds, the event hub, or the trophy room; BedWars shops, BedWars utility mobs, Boat Race boats, and Horse Race horses still spawn.
 - [ ] Crafting is blocked for event players in every event except SkyWars.
-- [ ] Manual item dropping is blocked in every event except SkyWars.
+- [ ] Manual item dropping is allowed only in CTF, Fight variants, BedWars, and SkyWars; other active event modes block it.
 - [ ] Player deaths keep and clear event items in every event except SkyWars; SkyWars deaths drop inventory normally.
 - [ ] No event kit, armor, or manually dropped item can be duplicated or carried into a later event.
 - [ ] BedWars setup rejects marker blocks and saves an actual bed's color and facing for each team.

@@ -11,6 +11,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.Statistic;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.BlockState;
@@ -157,6 +158,7 @@ public final class EventGameplayListener implements Listener {
     private final Map<UUID, Integer> bedWarsPickaxeTiers = new HashMap<>();
     private final Map<UUID, Integer> bedWarsAxeTiers = new HashMap<>();
     private final Map<UUID, Boolean> bedWarsHasShears = new HashMap<>();
+    private final Map<UUID, Map<Material, Integer>> bedWarsPendingResources = new HashMap<>();
     private final Map<UUID, BukkitTask> bedWarsRespawns = new HashMap<>();
     private final List<String> brokenBedTeams = new ArrayList<>();
     private final Map<String, BlockState> bedWarsTimedBedStates = new HashMap<>();
@@ -780,7 +782,14 @@ public final class EventGameplayListener implements Listener {
             return;
         }
         if (type == EventType.CAPTURE_THE_FLAG) {
-            if (!(event instanceof EntityDamageByEntityEvent) && player.getHealth() - event.getFinalDamage() <= 0.0D) {
+            if (event instanceof EntityDamageByEntityEvent byEntity
+                    && damagingPlayer(byEntity.getDamager()) != null) {
+                return;
+            }
+            if (event instanceof EntityDamageByEntityEvent) {
+                event.setCancelled(true);
+            }
+            if (isLethalDamage(player, event)) {
                 event.setCancelled(true);
                 EventMap map = session.selectedMap();
                 if (map != null) {
@@ -791,7 +800,10 @@ public final class EventGameplayListener implements Listener {
             return;
         }
         if (type == EventType.ONE_IN_THE_CHAMBER) {
-            if (event instanceof EntityDamageByEntityEvent) {
+            if (event instanceof EntityDamageByEntityEvent byEntity
+                    && damagingPlayer(byEntity.getDamager()) != null
+                    && (byEntity.getDamager() instanceof Arrow
+                    || playerHoldingAxe(damagingPlayer(byEntity.getDamager())))) {
                 return;
             }
             event.setCancelled(true);
@@ -823,13 +835,19 @@ public final class EventGameplayListener implements Listener {
         }
         if (type == EventType.PARKOUR || type == EventType.BLOCK_PARTY || type == EventType.RED_LIGHT_GREEN_LIGHT
                 || type == EventType.BOAT_RACE || type == EventType.HORSE_RACE
-                || (type == EventType.CAPTURE_PLAYERS && !(event instanceof EntityDamageByEntityEvent))) {
+                || (type == EventType.CAPTURE_PLAYERS && (!(event instanceof EntityDamageByEntityEvent byEntity)
+                || damagingPlayer(byEntity.getDamager()) == null))) {
             event.setCancelled(true);
             return;
         }
         if (type == EventType.SUMO_1V1 || type == EventType.SUMO_2V2 || type == EventType.SUMO_FFA
                 || type == EventType.KNOCKBACK_FFA) {
             event.setDamage(type == EventType.KNOCKBACK_FFA ? 0.01D : 0.0D);
+            return;
+        }
+        if (shouldSimulateLethalDamage(type, event) && isLethalDamage(player, event)) {
+            event.setCancelled(true);
+            simulateEventDeath(session, player, type);
         }
     }
 
@@ -947,6 +965,7 @@ public final class EventGameplayListener implements Listener {
         if (session == null || session.phase() != EventPhase.ACTIVE || !session.participants().contains(player.getUniqueId())) {
             return;
         }
+        undoEventDeathStatistic(player);
         if (session.definition().type() != EventType.SKYWARS) {
             event.setKeepInventory(true);
             event.getDrops().clear();
@@ -988,6 +1007,91 @@ public final class EventGameplayListener implements Listener {
             eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED + player.getName() + " was eliminated.");
         }
         eventManager.eliminateParticipant(player, "died");
+    }
+
+    private boolean shouldSimulateLethalDamage(EventType type, EntityDamageEvent event) {
+        if (event instanceof EntityDamageByEntityEvent
+                && (type == EventType.CAPTURE_PLAYERS || type == EventType.ONE_IN_THE_CHAMBER
+                || type == EventType.HOT_POTATO || type == EventType.SPLEGG)) {
+            return false;
+        }
+        return type == EventType.SKYWARS
+                || type == EventType.ELYTRA_RACE
+                || type == EventType.FIGHT_1V1
+                || type == EventType.FIGHT_2V2
+                || type == EventType.FIGHT_FFA
+                || type == EventType.SPLEEF
+                || type == EventType.SPLEGG
+                || type == EventType.HOT_POTATO;
+    }
+
+    private boolean playerHoldingAxe(Player player) {
+        return player != null && player.getInventory().getItemInMainHand().getType().name().endsWith("_AXE");
+    }
+
+    private boolean isLethalDamage(Player player, EntityDamageEvent event) {
+        return player.getHealth() - event.getFinalDamage() <= 0.0D;
+    }
+
+    private void simulateEventDeath(EventSession session, Player player, EventType type) {
+        player.setFireTicks(0);
+        player.setFallDistance(0.0F);
+        player.setVelocity(new Vector(0, 0, 0));
+        if (type == EventType.ELYTRA_RACE) {
+            player.setHealth(player.getMaxHealth());
+            EventMap map = session.selectedMap();
+            if (map != null) {
+                respawnRace(player, map);
+            }
+            player.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.YELLOW + "Respawning at your last checkpoint.");
+            return;
+        }
+        if (type == EventType.SKYWARS) {
+            dropSkyWarsInventory(player);
+        }
+        player.setHealth(player.getMaxHealth());
+        eventManager.eliminateParticipant(player, "died");
+    }
+
+    private void dropSkyWarsInventory(Player player) {
+        List<ItemStack> items = new ArrayList<>();
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            addSkyWarsDrop(items, item);
+        }
+        for (ItemStack item : player.getInventory().getArmorContents()) {
+            addSkyWarsDrop(items, item);
+        }
+        addSkyWarsDrop(items, player.getInventory().getItemInOffHand());
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(null);
+        player.getInventory().setItemInOffHand(null);
+        player.setLevel(0);
+        player.setExp(0.0F);
+        for (ItemStack item : items) {
+            player.getWorld().dropItemNaturally(player.getLocation(), item);
+        }
+    }
+
+    private void addSkyWarsDrop(List<ItemStack> drops, ItemStack item) {
+        if (item != null && !item.getType().isAir() && item.getAmount() > 0) {
+            drops.add(item.clone());
+        }
+    }
+
+    private void undoEventDeathStatistic(Player player) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            try {
+                int deaths = player.getStatistic(Statistic.DEATHS);
+                if (deaths > 0) {
+                    player.setStatistic(Statistic.DEATHS, deaths - 1);
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Servers may restrict direct statistic writes; regular event damage is intercepted first.
+            }
+        });
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -1194,6 +1298,7 @@ public final class EventGameplayListener implements Listener {
         bedWarsPickaxeTiers.clear();
         bedWarsAxeTiers.clear();
         bedWarsHasShears.clear();
+        bedWarsPendingResources.clear();
         saveQuickBuySlots();
         clearDroppedEventItems(trackedSession == null ? null : trackedSession.selectedMap());
         clearEventContainers(trackedSession == null ? null : trackedSession.selectedMap());
@@ -2965,6 +3070,7 @@ public final class EventGameplayListener implements Listener {
 
     private void tickBedWarsGenerators(EventSession session) {
         bedWarsGeneratorTicks++;
+        deliverBedWarsPendingResources(session);
         EventMap map = session.selectedMap();
         if (map == null) {
             return;
@@ -3997,9 +4103,10 @@ public final class EventGameplayListener implements Listener {
                 continue;
             }
             removeAllMaterial(victim, material);
-            Map<Integer, ItemStack> leftovers = killer.getInventory().addItem(new ItemStack(material, amount));
-            for (ItemStack leftover : leftovers.values()) {
-                killer.getWorld().dropItemNaturally(killer.getLocation(), leftover);
+            int undelivered = giveBedWarsResource(killer, material, amount);
+            if (undelivered > 0) {
+                bedWarsPendingResources.computeIfAbsent(killer.getUniqueId(), ignored -> new HashMap<>())
+                        .merge(material, undelivered, Integer::sum);
             }
             transferred.add(amount + " " + readableMaterial(material));
         }
@@ -4009,6 +4116,48 @@ public final class EventGameplayListener implements Listener {
         String summary = String.join(", ", transferred);
         killer.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN + "Looted " + summary + " from " + victim.getName() + ".");
         victim.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.RED + killer.getName() + " looted " + summary + " from you.");
+    }
+
+    private void deliverBedWarsPendingResources(EventSession session) {
+        for (UUID uuid : List.copyOf(bedWarsPendingResources.keySet())) {
+            if (!session.participants().contains(uuid)) {
+                bedWarsPendingResources.remove(uuid);
+                continue;
+            }
+            Player player = Bukkit.getPlayer(uuid);
+            if (player == null) {
+                continue;
+            }
+            Map<Material, Integer> pending = bedWarsPendingResources.get(uuid);
+            if (pending == null) {
+                continue;
+            }
+            for (Material material : List.copyOf(pending.keySet())) {
+                int remaining = giveBedWarsResource(player, material, pending.getOrDefault(material, 0));
+                if (remaining <= 0) {
+                    pending.remove(material);
+                } else {
+                    pending.put(material, remaining);
+                }
+            }
+            if (pending.isEmpty()) {
+                bedWarsPendingResources.remove(uuid);
+            }
+        }
+    }
+
+    private int giveBedWarsResource(Player player, Material material, int amount) {
+        int remaining = amount;
+        while (remaining > 0) {
+            int stackSize = Math.min(material.getMaxStackSize(), remaining);
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(new ItemStack(material, stackSize));
+            int undelivered = leftovers.values().stream().mapToInt(ItemStack::getAmount).sum();
+            remaining -= stackSize - undelivered;
+            if (undelivered > 0) {
+                break;
+            }
+        }
+        return remaining;
     }
 
     private int countMaterial(Player player, Material material) {
