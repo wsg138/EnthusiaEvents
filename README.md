@@ -63,7 +63,8 @@ Admin commands:
 - `/ee retryrestores`
 - `/ee stuckcheck <player>`
 - `/ee emergencyrestore <player>`
-- `/ee setup <event> <mapId> <tool...>`
+- `/ee setup <event> <mapId>`
+- `/ee setup save`
 - `/ee map <create|list|tp|status|export|exportall|transfer|retarget|...>`
 - `/ee map clear <event> <mapId> <section> [confirm]`
 
@@ -77,7 +78,7 @@ Use `map clear` to redo one part of a configured map. Supported sections include
 
 BedWars beds are configured from the team-tools page by clicking the actual placed bed. Its material and facing are saved and the complete bed is rebuilt before each match. Legacy marker-only bed entries must be configured again.
 
-To reconfigure an existing map, use `/ee eventtp <event> <mapId>`, clear only the affected saved data, then reopen the palette with `/ee setup <event> <mapId>`. For example:
+To reconfigure an existing map, use `/ee eventtp <event> <mapId>`, clear only the affected saved data, then reopen the palette with `/ee setup <event> <mapId>`. Save and exit with `/ee setup save`. For example:
 
 - BedWars beds: `/ee map clear BEDWARS <mapId> beds`, then `/ee setup BEDWARS <mapId>`.
 - Horse Race checkpoints: `/ee map clear HORSE_RACE <mapId> checkpoints`, then `/ee setup HORSE_RACE <mapId>`.

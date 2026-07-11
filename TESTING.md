@@ -5,6 +5,7 @@ Use this for the final player test before moving from the test server to the liv
 ## Latest Gameplay And Setup Fixes
 
 - [ ] `/ee setup <EVENT> <mapId>` opens that map's setup palette; no extra tool argument is needed.
+- [ ] `/ee setup save` validates, saves, and closes the active setup palette. `/ee setup <EVENT> <mapId> save` works when that same map is open.
 - [ ] BedWars reconfiguration: `/ee eventtp BEDWARS <mapId>`, `/ee map clear BEDWARS <mapId> beds`, then `/ee setup BEDWARS <mapId>` lets staff save actual beds again.
 - [ ] Horse Race reconfiguration: `/ee eventtp HORSE_RACE <mapId>`, `/ee map clear HORSE_RACE <mapId> checkpoints`, then `/ee setup HORSE_RACE <mapId>` lets staff rebuild checkpoints.
 - [ ] Capture the Flag reconfiguration: `/ee eventtp CAPTURE_THE_FLAG <mapId>`, `/ee map clear CAPTURE_THE_FLAG <mapId> spawns`, then `/ee setup CAPTURE_THE_FLAG <mapId>` lets staff reset team spawns.

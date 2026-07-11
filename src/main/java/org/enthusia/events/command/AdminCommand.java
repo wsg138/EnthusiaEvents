@@ -277,6 +277,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2 && args[0].equalsIgnoreCase("setup")) {
             List<String> values = new ArrayList<>();
             values.add("cancel");
+            values.add("save");
             values.addAll(List.of(EventType.values()).stream().map(Enum::name).toList());
             return filter(args[1], values);
         }
@@ -285,7 +286,7 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             return type == null ? List.of() : mapIds(type);
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("setup")) {
-            return filter(args[3], List.of("pos1", "pos2", "spawn", "spectator", "checkpoint", "checkpoint_spawn", "finish", "chest", "generator", "point", "area_pos1", "area_pos2", "area"));
+            return filter(args[3], List.of("save", "pos1", "pos2", "spawn", "spectator", "checkpoint", "checkpoint_spawn", "finish", "chest", "generator", "point", "area_pos1", "area_pos2", "area"));
         }
         if (args.length == 5 && args[0].equalsIgnoreCase("setup")) {
             EventType type = parseEventSilently(args[1]);
@@ -565,6 +566,9 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             }
             return true;
         }
+        if (args.length >= 2 && args[1].equalsIgnoreCase("save")) {
+            return saveSetupSession(player);
+        }
         if (args.length < 3) {
             sender.sendMessage("/ee setup <EVENT> <mapId> <pos1|pos2|spawn|spectator|checkpoint|checkpoint_spawn|finish|chest|generator|point|area_pos1|area_pos2|area> [name|tier|type]");
             return true;
@@ -580,6 +584,16 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 3) {
             setupWizard.openPalette(player, eventType, args[2]);
             return true;
+        }
+        if (args[3].equalsIgnoreCase("save")) {
+            SetupSession active = setupWizard.session(player).orElse(null);
+            if (active == null || active.eventType() != eventType || !active.mapId().equalsIgnoreCase(args[2])) {
+                plugin.messages().send(sender, "setup-failed", Map.of(
+                        "reason", "open that map first with /ee setup " + eventType.name() + " " + args[2]
+                ));
+                return true;
+            }
+            return saveSetupSession(player);
         }
         SetupTool tool;
         try {
@@ -608,6 +622,17 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
             }
         }
         setupWizard.begin(player, new SetupSession(eventType, args[2], tool, value));
+        return true;
+    }
+
+    private boolean saveSetupSession(Player player) {
+        if (setupWizard.session(player).isEmpty()) {
+            plugin.messages().send(player, "setup-failed", Map.of("reason", "no setup mode was active"));
+            return true;
+        }
+        if (setupWizard.saveAndClose(player)) {
+            plugin.messages().send(player, "setup-saved-finished");
+        }
         return true;
     }
 
