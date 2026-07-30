@@ -13,11 +13,9 @@ import org.enthusia.events.event.EventType;
 import org.enthusia.events.gui.EventVoteGui;
 import org.enthusia.events.stats.EventStatsGuiService;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
 public final class EventCommand implements CommandExecutor, TabCompleter {
@@ -27,7 +25,8 @@ public final class EventCommand implements CommandExecutor, TabCompleter {
     private final EventStatsGuiService statsGuiService;
     private final EventVoteGui voteGui;
 
-    public EventCommand(EnthusiaEventsPlugin plugin, EventManager eventManager, EventStatsGuiService statsGuiService, EventVoteGui voteGui) {
+    public EventCommand(EnthusiaEventsPlugin plugin, EventManager eventManager,
+                        EventStatsGuiService statsGuiService, EventVoteGui voteGui) {
         this.plugin = plugin;
         this.eventManager = eventManager;
         this.statsGuiService = statsGuiService;
@@ -41,91 +40,122 @@ public final class EventCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length == 0) {
+            sendActiveEvent(player);
+            return true;
+        }
+        return switch (args[0].toLowerCase(Locale.ROOT)) {
+            case "join" -> join(player);
+            case "spectate" -> spectate(player);
+            case "vote" -> openVote(player);
+            case "leave" -> leave(player);
+            case "start" -> start(player, args);
+            case "stats" -> openStats(player);
+            case "next", "time", "timer" -> sendNextEvent(player);
+            default -> false;
+        };
+    }
+
+    private void sendActiveEvent(Player player) {
+        EventSession session = eventManager.session();
+        if (session == null) {
+            plugin.messages().send(player, "event-not-running");
+            return;
+        }
+        plugin.messages().send(player, "active-event", Map.of(
+                "phase", session.phase().name(),
+                "event", session.definition().displayName()
+        ));
+    }
+
+    private boolean join(Player player) {
+        if (!eventManager.join(player)) {
             EventSession session = eventManager.session();
             if (session == null) {
                 plugin.messages().send(player, "event-not-running");
             } else {
-                plugin.messages().send(player, "active-event", Map.of(
-                        "phase", session.phase().name(),
-                        "event", session.definition().displayName()
-                ));
+                plugin.messages().send(player, "event-join-closed", Map.of("phase", session.phase().name()));
             }
+        }
+        return true;
+    }
+
+    private boolean spectate(Player player) {
+        if (!eventManager.spectate(player)) {
+            plugin.messages().send(player, "event-spectate-failed");
+        }
+        return true;
+    }
+
+    private boolean openVote(Player player) {
+        voteGui.open(player);
+        return true;
+    }
+
+    private boolean leave(Player player) {
+        if (!eventManager.leave(player)) {
+            plugin.messages().send(player, "event-not-running");
+        }
+        return true;
+    }
+
+    private boolean start(Player player, String[] args) {
+        if (eventManager.hasSession()) {
+            sendStartFailure(player, null);
             return true;
         }
-        switch (args[0].toLowerCase(Locale.ROOT)) {
-            case "join" -> {
-                if (!eventManager.join(player)) {
-                    EventSession session = eventManager.session();
-                    if (session == null) {
-                        plugin.messages().send(player, "event-not-running");
-                    } else {
-                        plugin.messages().send(player, "event-join-closed", Map.of("phase", session.phase().name()));
-                    }
-                }
-            }
-            case "spectate" -> {
-                if (!eventManager.spectate(player)) {
-                    plugin.messages().send(player, "event-spectate-failed");
-                }
-            }
-            case "vote" -> voteGui.open(player);
-            case "leave" -> {
-                if (!eventManager.leave(player)) {
-                    plugin.messages().send(player, "event-not-running");
-                }
-            }
-            case "start" -> {
-                if (eventManager.hasSession()) {
-                    plugin.messages().send(player, "event-start-failed", Map.of(
-                            "reason", eventManager.manualStartFailureReason(player, null, false)
-                    ));
-                    return true;
-                }
-                EventDefinition selected = null;
-                if (args.length < 2) {
-                    voteGui.openStart(player);
-                    return true;
-                } else {
-                    try {
-                        selected = plugin.eventRegistry().definition(EventType.parse(args[1]));
-                    } catch (IllegalArgumentException ignored) {
-                    }
-                    if (selected == null) {
-                        plugin.messages().send(player, "invalid-event", Map.of("event", args[1]));
-                        return true;
-                    }
-                }
-                if (!eventManager.startManualVote(player, selected, false)) {
-                    plugin.messages().send(player, "event-start-failed", Map.of(
-                            "reason", eventManager.manualStartFailureReason(player, selected, false)
-                    ));
-                }
-            }
-            case "stats" -> statsGuiService.openMain(player);
-            case "next", "time", "timer" ->
-                    plugin.messages().send(player, "next-event", Map.of("time", eventManager.nextHourlyVoteLabel()));
-            default -> {
-                return false;
-            }
+        if (args.length < 2) {
+            voteGui.openStart(player);
+            return true;
         }
+        EventDefinition selected = findDefinition(args[1]);
+        if (selected == null) {
+            plugin.messages().send(player, "invalid-event", Map.of("event", args[1]));
+            return true;
+        }
+        if (!eventManager.startManualVote(player, selected, false)) {
+            sendStartFailure(player, selected);
+        }
+        return true;
+    }
+
+    private EventDefinition findDefinition(String rawType) {
+        try {
+            return plugin.eventRegistry().definition(EventType.parse(rawType));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private void sendStartFailure(Player player, EventDefinition selected) {
+        plugin.messages().send(player, "event-start-failed", Map.of(
+                "reason", eventManager.manualStartFailureReason(player, selected, false)
+        ));
+    }
+
+    private boolean openStats(Player player) {
+        statsGuiService.openMain(player);
+        return true;
+    }
+
+    private boolean sendNextEvent(Player player) {
+        plugin.messages().send(player, "next-event", Map.of("time", eventManager.nextHourlyVoteLabel()));
         return true;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(args[0], List.of("join", "leave", "spectate", "vote", "start", "stats", "next", "time", "timer"));
+            return AdminCommandSupport.filter(
+                    args[0],
+                    List.of("join", "leave", "spectate", "vote", "start", "stats", "next", "time", "timer")
+            );
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("start")) {
-            return filter(args[1], List.of(EventType.values()).stream().map(Enum::name).toList());
+            return AdminCommandSupport.filter(
+                    args[1],
+                    List.of(EventType.values()).stream().map(Enum::name).toList()
+            );
         }
         return List.of();
-    }
-
-    private List<String> filter(String input, List<String> values) {
-        String lower = input.toLowerCase(Locale.ROOT);
-        return values.stream()
-                .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(lower))
-                .collect(Collectors.toCollection(ArrayList::new));
     }
 }
