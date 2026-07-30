@@ -54,6 +54,6 @@ public final class AdminCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        return tabCompleter.complete(sender, args);
+        return tabCompleter.complete(args);
     }
 }
