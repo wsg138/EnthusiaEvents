@@ -5,7 +5,6 @@ import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.enthusia.events.EnthusiaEventsPlugin;
-import org.enthusia.events.event.EventDefinition;
 import org.enthusia.events.event.EventMap;
 import org.enthusia.events.event.EventManager;
 import org.enthusia.events.event.EventType;
@@ -269,8 +268,12 @@ final class AdminCoreCommandHandler {
     }
 
     private boolean handleRestore(CommandSender sender, String[] args) {
-        Player target = requireOnlineTarget(sender, args, "/ee restore <player>");
+        if (args.length < 2) {
+            return false;
+        }
+        Player target = Bukkit.getPlayerExact(args[1]);
         if (target == null) {
+            plugin.messages().send(sender, "event-no-snapshot");
             return true;
         }
         if (sender instanceof Player admin) {
