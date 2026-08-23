@@ -16,8 +16,10 @@ import org.enthusia.events.event.BedWarsPolishListener;
 import org.enthusia.events.event.BoatRaceService;
 import org.enthusia.events.event.CapturePlayersJailGuardListener;
 import org.enthusia.events.event.EventDurabilityListener;
+import org.enthusia.events.event.EventGameplaySafetyListener;
 import org.enthusia.events.event.EventManager;
 import org.enthusia.events.event.EventGameplayListener;
+import org.enthusia.events.event.EventOutcomeService;
 import org.enthusia.events.event.EventRestrictionsListener;
 import org.enthusia.events.event.EventRegistry;
 import org.enthusia.events.event.EventScheduler;
@@ -63,6 +65,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
     private ChatEventService chatEventService;
     private EventSpecAuditRegistry specAuditRegistry;
     private EventManager eventManager;
+    private EventOutcomeService outcomeService;
     private EventScheduler scheduler;
     private EventVoteGui voteGui;
     private RestoreConfirmGui restoreConfirmGui;
@@ -109,6 +112,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         boatRaceService = new BoatRaceService(this, eventManager);
         podiumService = new PodiumService(this);
         eventManager.services(scoreboardService, arenaResetService, podiumService, boatRaceService);
+        outcomeService = new EventOutcomeService(this, eventManager, statsService, economy, eventConfigService);
         voteGui = new EventVoteGui(this, eventManager);
         eventManager.voteCloseHandler(voteGui::closeVoteViews);
         KitVoteListener kitVoteListener = new KitVoteListener(this, eventManager, kitService);
@@ -116,6 +120,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         restoreConfirmGui = new RestoreConfirmGui(this, eventManager);
         scheduler = new EventScheduler(this, eventManager);
         gameplayListener = new EventGameplayListener(this, eventManager);
+        EventGameplaySafetyListener gameplaySafetyListener = new EventGameplaySafetyListener(this, eventManager);
         eventManager.gameplayRuntimeReset(gameplayListener::resetForNewSession);
         eventManager.gameplayPreStart(gameplayListener::prepareSession);
         setupWizard = new SetupWizard(this, mapSetupService);
@@ -135,6 +140,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new ParticipantListener(eventManager, voteGui, restoreConfirmGui, skinCache), this);
         Bukkit.getPluginManager().registerEvents(new EventRestrictionsListener(this, eventManager, mapSetupService), this);
         Bukkit.getPluginManager().registerEvents(new EventDurabilityListener(eventManager), this);
+        Bukkit.getPluginManager().registerEvents(gameplaySafetyListener, this);
         Bukkit.getPluginManager().registerEvents(gameplayListener, this);
         Bukkit.getPluginManager().registerEvents(new CapturePlayersJailGuardListener(eventManager), this);
         Bukkit.getPluginManager().registerEvents(bedWarsPolishListener, this);
@@ -146,6 +152,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(statsGuiService, this);
         Bukkit.getScheduler().runTaskTimer(this, setupWizard::tickVisuals, 13L, 13L);
         Bukkit.getScheduler().runTaskTimer(this, bedWarsPolishListener::tickWinCondition, 1L, 1L);
+        Bukkit.getScheduler().runTaskTimer(this, gameplaySafetyListener::tickCtfArmor, 1L, 5L);
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             new EventsPlaceholderExpansion(this, statsService).register();
@@ -155,10 +162,14 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         scoreboardService.start();
         chatEventService.start();
         scheduler.start();
+        outcomeService.start();
     }
 
     @Override
     public void onDisable() {
+        if (outcomeService != null) {
+            outcomeService.stop();
+        }
         if (scheduler != null) {
             scheduler.stop();
         }
@@ -173,6 +184,9 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         }
         if (eventManager != null) {
             eventManager.shutdown();
+        }
+        if (arenaResetService != null) {
+            arenaResetService.finishPendingSynchronously();
         }
         if (statsService != null) {
             statsService.save();

@@ -3,6 +3,7 @@ package org.enthusia.events.stats;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 import org.enthusia.events.EnthusiaEventsPlugin;
 import org.enthusia.events.event.EventType;
 
@@ -21,6 +22,7 @@ public final class EventStatsService {
     private final EnthusiaEventsPlugin plugin;
     private final File file;
     private final Map<UUID, PlayerEventStats> stats = new HashMap<>();
+    private BukkitTask pendingSave;
 
     public EventStatsService(EnthusiaEventsPlugin plugin) {
         this.plugin = plugin;
@@ -68,6 +70,14 @@ public final class EventStatsService {
     }
 
     public void save() {
+        if (pendingSave != null) {
+            pendingSave.cancel();
+            pendingSave = null;
+        }
+        writeFile();
+    }
+
+    private void writeFile() {
         YamlConfiguration yaml = new YamlConfiguration();
         for (Map.Entry<UUID, PlayerEventStats> entry : stats.entrySet()) {
             String base = "players." + entry.getKey();
@@ -136,8 +146,12 @@ public final class EventStatsService {
     }
 
     private void saveIfConfigured() {
-        if (plugin.getConfig().getBoolean("stats.save-on-change", true)) {
-            save();
+        if (!plugin.getConfig().getBoolean("stats.save-on-change", true) || pendingSave != null) {
+            return;
         }
+        pendingSave = plugin.getServer().getScheduler().runTask(plugin, () -> {
+            pendingSave = null;
+            writeFile();
+        });
     }
 }
