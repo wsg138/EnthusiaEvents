@@ -14,6 +14,7 @@ import org.enthusia.events.config.EventConfigService;
 import org.enthusia.events.config.Messages;
 import org.enthusia.events.event.BedWarsPolishListener;
 import org.enthusia.events.event.BoatRaceService;
+import org.enthusia.events.event.CapturePlayersJailGuardListener;
 import org.enthusia.events.event.EventDurabilityListener;
 import org.enthusia.events.event.EventManager;
 import org.enthusia.events.event.EventGameplayListener;
@@ -135,6 +136,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new EventRestrictionsListener(this, eventManager, mapSetupService), this);
         Bukkit.getPluginManager().registerEvents(new EventDurabilityListener(eventManager), this);
         Bukkit.getPluginManager().registerEvents(gameplayListener, this);
+        Bukkit.getPluginManager().registerEvents(new CapturePlayersJailGuardListener(eventManager), this);
         Bukkit.getPluginManager().registerEvents(bedWarsPolishListener, this);
         Bukkit.getPluginManager().registerEvents(new SetupListener(setupWizard), this);
         Bukkit.getPluginManager().registerEvents(kitVoteListener, this);
