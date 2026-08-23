@@ -48,7 +48,7 @@ public final class EventDurabilityListener implements Listener {
             return;
         }
         String[] parts = commandLine.split("\\s+");
-        String root = parts[0].toLowerCase(Locale.ROOT);
+        String root = stripNamespace(parts[0]);
         String subcommand = parts.length > 1 ? parts[1].toLowerCase(Locale.ROOT) : "";
 
         if ((root.equals("event") || root.equals("ee")) && subcommand.equals("spectate")) {
@@ -97,5 +97,11 @@ public final class EventDurabilityListener implements Listener {
             eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED
                     + player.getName() + " was eliminated for moving on red light.");
         }
+    }
+
+    private String stripNamespace(String root) {
+        String normalized = root.toLowerCase(Locale.ROOT);
+        int colon = normalized.lastIndexOf(':');
+        return colon >= 0 ? normalized.substring(colon + 1) : normalized;
     }
 }
