@@ -92,6 +92,28 @@ public final class ArenaResetService implements Listener {
         }
     }
 
+    /**
+     * Bukkit cancels plugin tasks during disable. Finish any outstanding reset before that
+     * state can be stranded, including blocks captured after a batched reset started.
+     */
+    public void finishPendingSynchronously() {
+        if (resetTask != null) {
+            resetTask.cancel();
+            resetTask = null;
+        }
+        while (!pendingRestore.isEmpty()) {
+            BlockState state = pendingRestore.pollFirst();
+            if (state != null) {
+                state.update(true, false);
+            }
+        }
+        if (!originalStates.isEmpty()) {
+            List<BlockState> states = originalStates.values().stream().toList().reversed();
+            originalStates.clear();
+            restoreStates(states);
+        }
+    }
+
     public void clear() {
         originalStates.clear();
         pendingRestore.clear();
