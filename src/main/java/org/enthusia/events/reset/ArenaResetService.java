@@ -13,6 +13,7 @@ import org.bukkit.event.block.BlockFromToEvent;
 import org.bukkit.event.block.BlockPhysicsEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.scheduler.BukkitTask;
 import org.enthusia.events.EnthusiaEventsPlugin;
 import org.enthusia.events.event.CuboidRegion;
 import org.enthusia.events.event.EventManager;
@@ -21,6 +22,8 @@ import org.enthusia.events.event.EventPhase;
 import org.enthusia.events.event.EventSession;
 import org.enthusia.events.event.EventType;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -32,6 +35,8 @@ public final class ArenaResetService implements Listener {
     private final EnthusiaEventsPlugin plugin;
     private final EventManager eventManager;
     private final Map<String, BlockState> originalStates = new LinkedHashMap<>();
+    private final Deque<BlockState> pendingRestore = new ArrayDeque<>();
+    private BukkitTask resetTask;
 
     public ArenaResetService(EnthusiaEventsPlugin plugin, EventManager eventManager) {
         this.plugin = plugin;
@@ -39,21 +44,61 @@ public final class ArenaResetService implements Listener {
     }
 
     public void reset() {
-        List<BlockState> states = originalStates.values().stream().toList().reversed();
-        originalStates.clear();
-        int limit = plugin.getConfig().getInt("reset.max-blocks-per-session", 50_000);
-        if (states.size() > limit) {
-            plugin.getLogger().warning("Skipping arena reset because " + states.size()
-                    + " tracked blocks exceeds reset.max-blocks-per-session (" + limit + ").");
+        if (resetTask != null) {
             return;
         }
+        List<BlockState> states = originalStates.values().stream().toList().reversed();
+        if (states.isEmpty()) {
+            return;
+        }
+        originalStates.clear();
+
+        int synchronousLimit = Math.max(0, plugin.getConfig().getInt("reset.max-blocks-per-session", 50_000));
+        if (states.size() <= synchronousLimit) {
+            restoreStates(states);
+            return;
+        }
+
+        pendingRestore.clear();
+        pendingRestore.addAll(states);
+        int perTick = Math.max(100, plugin.getConfig().getInt("reset.max-blocks-per-tick", 2_000));
+        plugin.getLogger().warning("Arena reset contains " + states.size()
+                + " tracked blocks, above reset.max-blocks-per-session (" + synchronousLimit
+                + "). Restoring safely in batches of " + perTick + " blocks per tick instead of discarding reset data.");
+        resetTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> restoreBatch(perTick), 1L, 1L);
+    }
+
+    private void restoreStates(List<BlockState> states) {
         for (BlockState state : states) {
             state.update(true, false);
         }
     }
 
+    private void restoreBatch(int perTick) {
+        int restored = 0;
+        while (restored < perTick && !pendingRestore.isEmpty()) {
+            BlockState state = pendingRestore.pollFirst();
+            if (state != null) {
+                state.update(true, false);
+            }
+            restored++;
+        }
+        if (!pendingRestore.isEmpty()) {
+            return;
+        }
+        if (resetTask != null) {
+            resetTask.cancel();
+            resetTask = null;
+        }
+    }
+
     public void clear() {
         originalStates.clear();
+        pendingRestore.clear();
+        if (resetTask != null) {
+            resetTask.cancel();
+            resetTask = null;
+        }
     }
 
     public void recordBlock(Block block) {
