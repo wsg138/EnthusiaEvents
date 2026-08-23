@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - chatgpt-build-events-jar
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
