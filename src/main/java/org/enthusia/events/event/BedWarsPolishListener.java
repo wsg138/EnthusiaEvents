@@ -1,9 +1,11 @@
 package org.enthusia.events.event;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Waterlogged;
@@ -20,6 +22,7 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.util.Vector;
@@ -31,14 +34,16 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * BedWars-specific polish kept separate from the large gameplay listener.
+ * Small gameplay polish kept separate from the large gameplay listener.
  */
 public final class BedWarsPolishListener implements Listener {
 
     private static final String ITEM_SHOP_TITLE = "BedWars Item Shop";
+    private static final String BOAT_RACE_TAG = "enthusia_boat_race_boat";
     private static final double FIREBALL_DAMAGE_CAP = 1.0D;
     private static final float FIREBALL_EXPLOSION_POWER = 2.0F;
     private static final double FIREBALL_SPEED = 1.5D;
+    private static final int MULTIVERSE_SCAN_INTERVAL_TICKS = 100;
     private static final List<BlockFace> WATER_CHECK_FACES = List.of(
             BlockFace.UP,
             BlockFace.NORTH,
@@ -48,6 +53,10 @@ public final class BedWarsPolishListener implements Listener {
     );
 
     private final EventManager eventManager;
+    private final Set<UUID> boatFinishFeedbackSent = new LinkedHashSet<>();
+    private final Set<UUID> multiverseRegistrationAttempts = new LinkedHashSet<>();
+    private EventSession trackedBoatSession;
+    private int multiverseScanTicks;
 
     public BedWarsPolishListener(EventManager eventManager) {
         this.eventManager = eventManager;
@@ -60,6 +69,8 @@ public final class BedWarsPolishListener implements Listener {
      * check closes the match as soon as only one represented team remains.
      */
     public void tickWinCondition() {
+        tickMultiverseRegistration();
+
         EventSession session = activeBedWarsSession();
         if (session == null || session.participants().isEmpty()) {
             return;
@@ -87,6 +98,75 @@ public final class BedWarsPolishListener implements Listener {
         if (!winners.isEmpty()) {
             eventManager.endActiveEventDelayed(winners, 60L);
         }
+    }
+
+    /**
+     * Boat Race's main finish handler removes the finisher from participants before it
+     * broadcasts the finish announcement, so the player who actually finished is excluded
+     * from that broadcast. Capture the crossing here and confirm it after the normal finish
+     * handler has recorded the ranking.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onBoatRaceMove(VehicleMoveEvent event) {
+        EventSession session = eventManager.session();
+        if (session == null
+                || session.phase() != EventPhase.ACTIVE
+                || session.definition() == null
+                || session.definition().type() != EventType.BOAT_RACE) {
+            if (trackedBoatSession != session) {
+                trackedBoatSession = session;
+                boatFinishFeedbackSent.clear();
+            }
+            return;
+        }
+        if (trackedBoatSession != session) {
+            trackedBoatSession = session;
+            boatFinishFeedbackSent.clear();
+        }
+        if (!event.getVehicle().getScoreboardTags().contains(BOAT_RACE_TAG)) {
+            return;
+        }
+
+        Player player = event.getVehicle().getPassengers().stream()
+                .filter(Player.class::isInstance)
+                .map(Player.class::cast)
+                .findFirst()
+                .orElse(null);
+        if (player == null || !session.participants().contains(player.getUniqueId())) {
+            return;
+        }
+
+        EventMap map = session.selectedMap();
+        if (map == null) {
+            return;
+        }
+        boolean crossingFinish = map.checkpoints().entrySet().stream()
+                .filter(entry -> entry.getKey().toLowerCase(Locale.ROOT).startsWith("finish"))
+                .map(java.util.Map.Entry::getValue)
+                .anyMatch(finish -> sameBlock(finish, event.getTo()));
+        if (!crossingFinish) {
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+        Plugin plugin = Bukkit.getPluginManager().getPlugin("EnthusiaEvents");
+        if (plugin == null || !plugin.isEnabled()) {
+            return;
+        }
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            EventSession current = eventManager.session();
+            if (current != session || !current.finalRankings().contains(playerId)
+                    || !boatFinishFeedbackSent.add(playerId)) {
+                return;
+            }
+            Player finisher = Bukkit.getPlayer(playerId);
+            if (finisher == null || !finisher.isOnline()) {
+                return;
+            }
+            int place = current.finalRankings().indexOf(playerId) + 1;
+            finisher.sendMessage(ChatColor.GOLD + "[Events] " + ChatColor.GREEN
+                    + "You finished! " + ChatColor.YELLOW + "Place: #" + place);
+        });
     }
 
     /**
@@ -237,6 +317,54 @@ public final class BedWarsPolishListener implements Listener {
                 player.playSound(player.getLocation(), Sound.ENTITY_ENDER_DRAGON_GROWL, 1.0F, 1.0F);
             }
         }
+    }
+
+    private void tickMultiverseRegistration() {
+        multiverseScanTicks++;
+        if (multiverseScanTicks < MULTIVERSE_SCAN_INTERVAL_TICKS) {
+            return;
+        }
+        multiverseScanTicks = 0;
+        if (!Bukkit.getPluginManager().isPluginEnabled("Multiverse-Core")) {
+            return;
+        }
+
+        for (World world : Bukkit.getWorlds()) {
+            if (!isEventWorld(world) || !multiverseRegistrationAttempts.add(world.getUID())) {
+                continue;
+            }
+            String worldArgument = usesNamespacedWorldKeys() ? world.getKey().toString() : world.getName();
+            String environment = switch (world.getEnvironment()) {
+                case NETHER -> "nether";
+                case THE_END -> "the_end";
+                default -> "normal";
+            };
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "mv import " + worldArgument + " " + environment);
+        }
+    }
+
+    private boolean isEventWorld(World world) {
+        String name = world.getName().toLowerCase(Locale.ROOT);
+        return name.startsWith("events-") || name.startsWith("ee_");
+    }
+
+    private boolean usesNamespacedWorldKeys() {
+        String version = Bukkit.getMinecraftVersion();
+        int dot = version.indexOf('.');
+        String majorText = dot >= 0 ? version.substring(0, dot) : version;
+        try {
+            return Integer.parseInt(majorText) >= 26;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private boolean sameBlock(Location left, Location right) {
+        return left != null && right != null && left.getWorld() != null && right.getWorld() != null
+                && left.getWorld().getUID().equals(right.getWorld().getUID())
+                && left.getBlockX() == right.getBlockX()
+                && left.getBlockY() == right.getBlockY()
+                && left.getBlockZ() == right.getBlockZ();
     }
 
     private Fireball newestOwnedFireball(Player player) {
