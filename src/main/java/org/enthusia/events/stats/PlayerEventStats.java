@@ -76,6 +76,34 @@ public final class PlayerEventStats {
         eventLossCounts.merge(type, 1, Integer::sum);
     }
 
+    /**
+     * Replace whatever provisional outcome was recorded for the current event with exactly
+     * one intended outcome relative to the counters captured before the event concluded.
+     * This lets the outcome service correct eliminated/spectating players and team winners
+     * without double-counting the manager's legacy first-winner bookkeeping.
+     */
+    public void reconcileOutcome(EventType type, int winsBefore, int lossesBefore,
+                                 int winStreakBefore, int bestStreakBefore,
+                                 int eventWinsBefore, int eventLossesBefore,
+                                 boolean won) {
+        totalWins = winsBefore + (won ? 1 : 0);
+        totalLosses = lossesBefore + (won ? 0 : 1);
+        currentWinStreak = won ? winStreakBefore + 1 : 0;
+        highestWinStreak = won
+                ? Math.max(bestStreakBefore, currentWinStreak)
+                : bestStreakBefore;
+        setCount(eventWinCounts, type, eventWinsBefore + (won ? 1 : 0));
+        setCount(eventLossCounts, type, eventLossesBefore + (won ? 0 : 1));
+    }
+
+    private void setCount(Map<EventType, Integer> values, EventType type, int value) {
+        if (value <= 0) {
+            values.remove(type);
+        } else {
+            values.put(type, value);
+        }
+    }
+
     public void loadTotals(int eventsPlayed, int wins, int losses, int winStreak, int bestStreak) {
         this.totalEventsPlayed = eventsPlayed;
         this.totalWins = wins;
