@@ -26,6 +26,7 @@ public final class EventKitService {
     private final File file;
     private final Map<String, EventKit> kits = new HashMap<>();
     private final Map<UUID, String> selectedKits = new HashMap<>();
+    private String lockedWinningKit;
 
     public EventKitService(EnthusiaEventsPlugin plugin) {
         this.plugin = plugin;
@@ -39,6 +40,7 @@ public final class EventKitService {
 
     public void reload() {
         kits.clear();
+        lockedWinningKit = null;
         if (!file.exists()) {
             installDefaultKits();
             save();
@@ -119,7 +121,25 @@ public final class EventKitService {
         });
     }
 
+    /**
+     * Resolve the Fight kit vote once and keep that result fixed for the entire event.
+     * Every fighter and every later bracket round therefore receives the same kit.
+     */
     public Optional<EventKit> winningKit() {
+        if (lockedWinningKit != null) {
+            EventKit locked = kits.get(lockedWinningKit);
+            if (locked != null) {
+                return Optional.of(locked);
+            }
+            lockedWinningKit = null;
+        }
+
+        Optional<EventKit> winner = resolveWinningKit();
+        winner.ifPresent(kit -> lockedWinningKit = normalize(kit.name()));
+        return winner;
+    }
+
+    private Optional<EventKit> resolveWinningKit() {
         if (selectedKits.isEmpty()) {
             return firstKit();
         }
@@ -155,6 +175,7 @@ public final class EventKitService {
 
     public void clearSelections() {
         selectedKits.clear();
+        lockedWinningKit = null;
     }
 
     public String selectedKitName(Player player) {
