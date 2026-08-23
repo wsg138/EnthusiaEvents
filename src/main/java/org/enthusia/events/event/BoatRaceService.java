@@ -41,6 +41,8 @@ public final class BoatRaceService implements Listener {
     private static final String BOAT_METADATA = "enthusia_boat_race_boat";
     private static final String HORSE_TAG = "enthusia_horse_race_horse";
     private static final String HORSE_METADATA = "enthusia_horse_race_horse";
+    private static final double POINT_TRIGGER_RADIUS = 1.35D;
+    private static final double SEGMENT_SAMPLE_STEP = 0.25D;
 
     private final EnthusiaEventsPlugin plugin;
     private final EventManager eventManager;
@@ -225,19 +227,22 @@ public final class BoatRaceService implements Listener {
         if (map == null) {
             return;
         }
-        Location location = event.getTo();
-        recordBoatCheckpoint(player, map, location);
-        boolean finished = map.checkpoints().entrySet().stream()
-                .filter(entry -> entry.getKey().toLowerCase(Locale.ROOT).startsWith("finish"))
-                .map(Map.Entry::getValue)
-                .anyMatch(finish -> sameBlock(finish, location));
-        if (finished) {
-            if (!completedBoatCheckpoints(player, map)) {
-                player.sendActionBar(org.bukkit.ChatColor.RED + "Complete every checkpoint before finishing.");
-                return;
-            }
-            eventManager.finishParticipant(player);
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        recordBoatCheckpoint(player, map, from, to);
+        if (!crossesFinish(map, from, to)) {
+            return;
         }
+        if (!completedBoatCheckpoints(player, map)) {
+            player.sendActionBar(org.bukkit.ChatColor.RED + "Complete every checkpoint before finishing.");
+            return;
+        }
+
+        // EventManager broadcasts to the remaining participants/spectators after removing this racer,
+        // so explicitly show the same finish announcement to the racer who just crossed the line.
+        player.sendMessage(org.bukkit.ChatColor.GOLD + "[Events] " + org.bukkit.ChatColor.GREEN
+                + player.getName() + " finished.");
+        eventManager.finishParticipant(player);
     }
 
     private void stabilizeSubmergedBoat(Boat boat) {
@@ -253,21 +258,92 @@ public final class BoatRaceService implements Listener {
         boat.setFallDistance(0.0F);
     }
 
-    private void recordBoatCheckpoint(Player player, EventMap map, Location location) {
+    private void recordBoatCheckpoint(Player player, EventMap map, Location from, Location to) {
         map.checkpoints().entrySet().stream()
                 .filter(entry -> isRaceCheckpoint(entry.getKey()))
-                .filter(entry -> sameBlock(entry.getValue(), location))
-                .findFirst()
-                .ifPresent(entry -> boatCheckpointProgress.merge(player.getUniqueId(), checkpointOrder(entry.getKey()), Math::max));
+                .filter(entry -> crossesPoint(from, to, entry.getValue()))
+                .mapToInt(entry -> checkpointOrder(entry.getKey()))
+                .max()
+                .ifPresent(order -> boatCheckpointProgress.merge(player.getUniqueId(), order, Math::max));
+
+        map.areas().entrySet().stream()
+                .filter(entry -> isRaceCheckpoint(entry.getKey()))
+                .filter(entry -> crossesRegion(from, to, entry.getValue()))
+                .mapToInt(entry -> checkpointOrder(entry.getKey()))
+                .max()
+                .ifPresent(order -> boatCheckpointProgress.merge(player.getUniqueId(), order, Math::max));
     }
 
     private boolean completedBoatCheckpoints(Player player, EventMap map) {
-        int required = map.checkpoints().keySet().stream()
+        int pointRequired = map.checkpoints().keySet().stream()
                 .filter(this::isRaceCheckpoint)
                 .mapToInt(this::checkpointOrder)
                 .max()
                 .orElse(0);
+        int areaRequired = map.areas().keySet().stream()
+                .filter(this::isRaceCheckpoint)
+                .mapToInt(this::checkpointOrder)
+                .max()
+                .orElse(0);
+        int required = Math.max(pointRequired, areaRequired);
         return required <= 0 || boatCheckpointProgress.getOrDefault(player.getUniqueId(), 0) >= required;
+    }
+
+    private boolean crossesFinish(EventMap map, Location from, Location to) {
+        boolean pointFinish = map.checkpoints().entrySet().stream()
+                .filter(entry -> entry.getKey().toLowerCase(Locale.ROOT).startsWith("finish"))
+                .map(Map.Entry::getValue)
+                .anyMatch(finish -> crossesPoint(from, to, finish));
+        if (pointFinish) {
+            return true;
+        }
+        return map.areas().entrySet().stream()
+                .filter(entry -> entry.getKey().toLowerCase(Locale.ROOT).startsWith("finish"))
+                .map(Map.Entry::getValue)
+                .anyMatch(area -> crossesRegion(from, to, area));
+    }
+
+    private boolean crossesPoint(Location from, Location to, Location target) {
+        if (!sameWorld(from, target) || !sameWorld(to, target)) {
+            return false;
+        }
+        Vector start = from.toVector();
+        Vector end = to.toVector();
+        Vector point = target.clone().add(0.5D, 0.5D, 0.5D).toVector();
+        Vector segment = end.clone().subtract(start);
+        double lengthSquared = segment.lengthSquared();
+        if (lengthSquared <= 1.0E-9D) {
+            return start.distanceSquared(point) <= POINT_TRIGGER_RADIUS * POINT_TRIGGER_RADIUS;
+        }
+        double t = point.clone().subtract(start).dot(segment) / lengthSquared;
+        t = Math.max(0.0D, Math.min(1.0D, t));
+        Vector closest = start.clone().add(segment.multiply(t));
+        return closest.distanceSquared(point) <= POINT_TRIGGER_RADIUS * POINT_TRIGGER_RADIUS;
+    }
+
+    private boolean crossesRegion(Location from, Location to, CuboidRegion region) {
+        if (from == null || to == null || from.getWorld() == null || to.getWorld() == null
+                || !from.getWorld().getUID().equals(to.getWorld().getUID())
+                || !from.getWorld().getName().equalsIgnoreCase(region.worldName())) {
+            return false;
+        }
+        if (region.contains(from) || region.contains(to)) {
+            return true;
+        }
+        double distance = from.distance(to);
+        int samples = Math.max(1, (int) Math.ceil(distance / SEGMENT_SAMPLE_STEP));
+        for (int index = 1; index < samples; index++) {
+            double t = index / (double) samples;
+            Location sample = from.clone().add(
+                    (to.getX() - from.getX()) * t,
+                    (to.getY() - from.getY()) * t,
+                    (to.getZ() - from.getZ()) * t
+            );
+            if (region.contains(sample)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isRaceCheckpoint(String key) {
@@ -293,13 +369,6 @@ public final class BoatRaceService implements Listener {
     private boolean sameWorld(Location left, Location right) {
         return left != null && right != null && left.getWorld() != null && right.getWorld() != null
                 && left.getWorld().getUID().equals(right.getWorld().getUID());
-    }
-
-    private boolean sameBlock(Location left, Location right) {
-        return sameWorld(left, right)
-                && left.getBlockX() == right.getBlockX()
-                && left.getBlockY() == right.getBlockY()
-                && left.getBlockZ() == right.getBlockZ();
     }
 
     private void fillWall(CuboidRegion area, boolean checkered) {
