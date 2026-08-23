@@ -119,6 +119,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         setupWizard = new SetupWizard(this, mapSetupService);
         chatEventService = new ChatEventService(this, economy);
         specAuditRegistry = new EventSpecAuditRegistry(this, eventRegistry, mapSetupService);
+        BedWarsPolishListener bedWarsPolishListener = new BedWarsPolishListener(eventManager);
 
         AdminCommand adminCommand = new AdminCommand(this, eventManager, mapSetupService, setupWizard, mapCopyService, restoreConfirmGui, kitService);
         EventCommand eventCommand = new EventCommand(this, eventManager, statsGuiService, voteGui);
@@ -132,7 +133,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new ParticipantListener(eventManager, voteGui, restoreConfirmGui, skinCache), this);
         Bukkit.getPluginManager().registerEvents(new EventRestrictionsListener(this, eventManager, mapSetupService), this);
         Bukkit.getPluginManager().registerEvents(gameplayListener, this);
-        Bukkit.getPluginManager().registerEvents(new BedWarsPolishListener(eventManager), this);
+        Bukkit.getPluginManager().registerEvents(bedWarsPolishListener, this);
         Bukkit.getPluginManager().registerEvents(new SetupListener(setupWizard), this);
         Bukkit.getPluginManager().registerEvents(kitVoteListener, this);
         Bukkit.getPluginManager().registerEvents(arenaResetService, this);
@@ -140,6 +141,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(chatEventService, this);
         Bukkit.getPluginManager().registerEvents(statsGuiService, this);
         Bukkit.getScheduler().runTaskTimer(this, setupWizard::tickVisuals, 13L, 13L);
+        Bukkit.getScheduler().runTaskTimer(this, bedWarsPolishListener::tickWinCondition, 1L, 1L);
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             new EventsPlaceholderExpansion(this, statsService).register();
