@@ -1,12 +1,18 @@
 # EnthusiaEvents Player Guide
 
-This guide describes the **current implemented behavior** of EnthusiaEvents and the current Enthusia SMP deployment. It is intended to be a reliable source for future player-facing documentation and wiki generation.
+This guide describes the current EnthusiaEvents implementation and the latest retained Enthusia server configuration. It is intended to be the canonical source for future player-facing documentation and wiki generation.
 
-The technical README and `Specifications.md` contain development and setup details. Where an old specification disagrees with current code or the live server configuration, this guide follows the current implementation and live configuration.
+## Production status — important
 
-## Current deployment status
+The latest Enthusia **plugin-JAR manifest does not contain an EnthusiaEvents jar**. The server snapshot still contains `plugins/EnthusiaEvents/` configuration/map data, but that directory is retained data and does not by itself mean the plugin is currently loaded.
 
-The current live Enthusia SMP configuration has:
+Therefore the correct current classification is **implemented / configured, but not presently installed as an active production plugin**. Do not advertise `/event` or the event roster as currently available until a newer jar manifest shows EnthusiaEvents deployed again.
+
+The configuration values below are useful as the intended/current retained deployment setup for the next deployment, not proof of a running feature.
+
+## Retained deployment configuration
+
+The latest server configuration has:
 
 - automatic hourly event scheduling: **disabled**
 - chat mini-events: **disabled**
@@ -21,11 +27,11 @@ The current live Enthusia SMP configuration has:
 - configured player cost to start a chosen event: **150 economy units**
 - configured `random-start-cost`: **750 economy units**
 
-The code historically calls the random-start path a discounted/random start, but the current live value (750) is higher than the chosen-event value (150). Do not describe random event starts as discounted unless the deployment is changed.
+The older design describes a random start as discounted, but the retained configuration currently makes random start more expensive than chosen start. Do not call it discounted unless the deployment/config is changed.
 
-Because automatic scheduling is currently disabled, do not advertise an hourly automatic schedule as a currently active SMP feature. The framework for hourly voting remains implemented and can be enabled by staff.
+## Implemented player commands
 
-## Player commands
+When deployed, the plugin provides:
 
 | Command | Behavior |
 | --- | --- |
@@ -34,183 +40,117 @@ Because automatic scheduling is currently disabled, do not advertise an hourly a
 | `/event leave` | Leaves the event and restores the player's saved pre-event state. |
 | `/event spectate` | Attempts to spectate the current event. |
 | `/event vote` | Opens the event-vote GUI while a vote is active. |
-| `/event start` | Opens the GUI of currently startable events. |
+| `/event start` | Opens the GUI of startable events. |
 | `/event start <event>` | Attempts to start a specific event directly. |
 | `/event stats` | Opens event statistics. |
 | `/event next` | Shows the next scheduled hourly-vote time. `/event time` and `/event timer` are aliases. |
 
-Normal event commands are available to players through the plugin's ordinary player permission. Starting an event is also player-accessible unless the server's permission configuration overrides it.
-
-## Starting an event
-
-`/event start` only lists events that:
-
-1. are enabled in the event registry,
-2. have not been disabled by staff, and
-3. have at least one usable, fully configured map.
-
-A player who is not exempt from event-start costs pays the configured Vault economy cost when the event starts. The current chosen-event cost is 150.
-
-A start fails if another event session already exists, the selected event is disabled, no usable map exists, or the player cannot afford the cost.
-
-The plugin contains a separate random-vote start path, but the ordinary current `/event start` GUI selects a specific event. Future documentation should only describe a random-start button if the deployed GUI actually exposes it.
+`/event start` only offers event definitions that are enabled, not staff-disabled, and have at least one usable configured map. Player-paid starts use Vault unless the player has the free-start permission.
 
 ## Event lifecycle
 
-The event framework can run through these phases:
+The framework can run through:
 
-1. **Vote** - players vote between available events when a vote-driven start is used.
-2. **Join** - players join and are moved to the waiting hub.
-3. **Countdown / pre-start** - players are prepared and the selected map/game initializes.
-4. **Active** - event-specific gameplay runs.
-5. **Results / trophy room** - winners and results are shown.
-6. **Restore** - saved player state is restored and event runtime state is cleaned up.
+1. **Vote** — players vote between available event choices when a vote-driven start is used.
+2. **Join** — players join and are moved to the waiting hub.
+3. **Countdown / pre-start** — players are prepared and map/game state initializes.
+4. **Active** — event-specific gameplay runs.
+5. **Results / trophy room** — winners/results are shown.
+6. **Restore** — saved player state is restored and temporary runtime state is cleaned up.
 
-Only one physical event session runs at a time.
+Only one physical event session can run at a time.
 
 ## Player-state protection
 
-Before an event player is moved into event gameplay, EnthusiaEvents uses a snapshot/restore system so normal SMP state is not supposed to be consumed by the event. The system is designed to preserve and restore important state including inventory/loadout, armor/offhand, health, food, experience, game mode, potion effects, flight/movement state, and the player's original location.
+Before gameplay, EnthusiaEvents snapshots normal SMP state so event equipment/gameplay does not intentionally consume the player's real loadout. Restore coverage includes important state such as inventory, armor/offhand, health, food, experience, game mode, potion effects, flight/movement state, and original location.
 
-The plugin also retains failed/pending restores rather than silently deleting them. Staff have dedicated inspection, retry, restore and emergency-recovery commands for players whose state could not be restored normally.
+Failed/pending restores are retained for staff recovery rather than silently discarded. Staff have inspection, retry, restore and emergency-recovery commands.
 
 ## Waiting hub and event isolation
 
-The current deployment blocks common escape/economy commands while players are inside controlled event areas, including:
+The retained production configuration blocks common escape/economy commands in controlled event areas, including `/accept`, `/tpaccept`, `/tpa`, `/tpahere`, `/tpask`, `/spawn`, `/home`, `/warp`, `/rtp`, `/back`, `/withdraw`, and `/deposit`.
 
-- `/accept`
-- `/tpaccept`
-- `/tpa`
-- `/tpahere`
-- `/tpask`
-- `/spawn`
-- `/home`
-- `/warp`
-- `/rtp`
-- `/back`
-- `/withdraw`
-- `/deposit`
-
-Normal external teleports and portals are blocked as well. The waiting hub and trophy room are locked against normal gameplay interaction.
-
-Event teleport handling is also designed to prevent delayed-teleport exploits such as throwing an ender pearl and then leaving the event before it lands.
+External teleports/portals are blocked according to event state. The implementation also protects against delayed-teleport exploits such as throwing an ender pearl and leaving before it lands.
 
 ## Voting
 
-When a vote phase is active, `/event vote` opens a GUI showing the candidate events, their descriptions and their current vote counts. A player can change their vote by selecting another choice.
+A vote GUI displays candidate events and live vote counts; selecting another candidate changes the player's vote. The retained setting is up to **5 choices** for a scheduled/random vote.
 
-The framework can select up to five event choices for a scheduled/random vote according to the current `events.vote-options` setting.
+## Implemented event roster
 
-## Current event roster
-
-The current live config registers the following event types. `Fight 2v2` and `Sumo 2v2` are additionally placed on the staff-disabled list, so they should not be presented as currently startable even though their implementations exist.
+The retained config registers these event types. `Fight 2v2` and `Sumo 2v2` are additionally on the staff-disabled list. Because the jar is not currently installed, none should be presented as presently playable solely from this config.
 
 ### Combat and elimination
 
-| Event | Core implemented objective / behavior |
+| Event | Implemented objective / behavior |
 | --- | --- |
-| **SkyWars** | Last player standing. Uses kits/loot infrastructure, tiered chests and a map where event terrain/placed blocks can be modified and restored. |
-| **BedWars** | Last team alive. Includes team beds, resource generators, item/upgrade shops, team upgrades/traps, respawns while the bed survives, and map cleanup/reset. |
-| **Fight 1v1** | Bracket/direct combat format; last surviving player wins the match. |
-| **Fight 2v2** | Team fight implementation exists, but it is currently disabled in the live config. |
-| **Fight FFA** | Free-for-all combat; last player standing. |
-| **Sumo 1v1** | Knock the opponent off the platform; last player remaining wins. |
-| **Sumo 2v2** | Team sumo implementation exists, but it is currently disabled in the live config. |
-| **Sumo FFA** | Free-for-all sumo; last player on the platform wins. |
-| **Knockback FFA** | Knockback-focused elimination; last player standing. Ender pearls are specifically permitted by the event registry. |
-| **Quake** | Quake-style projectile/railgun combat with scoring and respawns handled by the event runtime. |
-| **One in the Chamber** | Limited-shot projectile combat with scoring and respawns handled by the event runtime. |
+| **SkyWars** | Last player standing; tiered loot/chests, kits and restorable modified terrain. |
+| **BedWars** | Last team alive; team beds, generators, item/upgrade shops, upgrades/traps and respawns while the bed survives. |
+| **Fight 1v1** | Direct/bracket combat; last surviving player wins. |
+| **Fight 2v2** | Team fight implementation; additionally disabled in retained config. |
+| **Fight FFA** | Free-for-all; last player standing. |
+| **Sumo 1v1** | Knock opponent off; last player on platform wins. |
+| **Sumo 2v2** | Team sumo implementation; additionally disabled in retained config. |
+| **Sumo FFA** | Free-for-all sumo. |
+| **Knockback FFA** | Knockback-focused elimination; registry specifically permits ender pearls. |
+| **Quake** | Quake/railgun-style scoring and respawns. |
+| **One in the Chamber** | Limited-shot projectile combat with scoring and respawns. |
 
-### Team objective events
+### Team objectives
 
-| Event | Core implemented objective / behavior |
+| Event | Implemented objective / behavior |
 | --- | --- |
-| **Capture the Flag** | Team flags, carriers, dropped/returned flags and team scoring. The implementation's intended win condition is three captures. |
-| **Capture Players** | Teams capture/carry opposing players into jail/capture areas and can rescue prisoners. Current config requires **5 captures** toward a round and **3 round wins**. |
+| **Capture the Flag** | Team flags, carriers, drops/returns and scoring; intended win condition is three captures. |
+| **Capture Players** | Capture/carry enemy players into jail/capture areas and rescue prisoners. Retained config uses 5 captures toward a round and 3 round wins. |
 
-### Party / survival events
+### Party / survival
 
-| Event | Core implemented objective / behavior |
+| Event | Implemented objective / behavior |
 | --- | --- |
-| **Block Party** | Players must reach the announced concrete color before other floor colors disappear; falling eliminates players. |
-| **Hot Potato** | A player holds the hot potato and players pass it through gameplay until eliminations leave a winner. |
-| **Spleef** | Break the configured floor/arena to eliminate opponents; last player standing. |
-| **Splegg** | Projectile-based floor destruction; last player standing. |
-| **Red Light Green Light** | Players advance toward the finish while movement is restricted during red-light periods. |
+| **Block Party** | Reach the announced concrete color before other colors disappear; falling eliminates. |
+| **Hot Potato** | Pass the potato and survive successive eliminations. |
+| **Spleef** | Break the configured floor to eliminate opponents. |
+| **Splegg** | Projectile-based floor destruction. |
+| **Red Light Green Light** | Advance toward the finish while movement is restricted during red-light periods. |
 
-### Racing / completion events
+### Racing / completion
 
-| Event | Core implemented objective / behavior |
+| Event | Implemented objective / behavior |
 | --- | --- |
-| **Boat Race** | Finish-order race using boats. |
-| **Horse Race** | Finish-order horse race with recovery logic for players/horse positioning. |
-| **Elytra Race** | Finish-order elytra race with required ring/checkpoint surfaces; missing/invalid course sections can trigger recovery. |
-| **Parkour** | Finish-order parkour using configured checkpoints and last-safe-position recovery. |
+| **Boat Race** | Boat finish-order race. |
+| **Horse Race** | Horse finish-order race with recovery logic. |
+| **Elytra Race** | Elytra course using required rings/checkpoint surfaces and recovery. |
+| **Parkour** | Checkpoint/finish-order parkour with last-safe-position recovery. |
 
-## BedWars details
+## BedWars depth
 
-BedWars is a substantial mode inside EnthusiaEvents rather than a thin elimination wrapper. Current implementation includes:
+BedWars is a full event implementation rather than only a last-team-standing wrapper. It includes configured team beds, iron/gold/diamond/emerald resource flow, item and upgrade shops, Quick Buy state, progressive tools, permanent shears, armor tiers, Sharpness, Protection, Haste, forge upgrades, traps, Heal Pool, Feather Falling, TNT, bed bugs/silverfish, bridge eggs, bed-based respawn/final elimination, and tracked map/entity cleanup.
 
-- configured team beds that are rebuilt before matches,
-- iron/gold/diamond/emerald resource handling,
-- item-shop and upgrade-shop NPC/entities,
-- Quick Buy state,
-- progressive pickaxe and axe tiers,
-- permanent shears tracking,
-- armor tiers,
-- team Sharpness,
-- team Protection levels,
-- Haste levels,
-- forge upgrades,
-- traps,
-- Heal Pool support,
-- Feather Falling levels,
-- TNT handling,
-- bed bugs/silverfish,
-- bridge eggs,
-- player respawning while the team bed remains alive,
-- final elimination once the bed has been destroyed,
-- tracked block and entity cleanup after the match.
+If/when Events returns to production, BedWars warrants its own wiki page rather than one sentence in an event list.
 
-Future wiki documentation can have its own BedWars page rather than treating it as only one line in the event list.
+## Fight-event kits
 
-## Fight-event kit voting
-
-The framework contains saved event kits and kit-voting support intended for fight-style events. During relevant event setup/join flow, kit choices can be represented through hotbar/GUI interactions and the selected kit is applied for event combat. Kits include inventory, armor and offhand state.
-
-This is event loadout state, not the player's normal SMP inventory; the normal pre-event state is restored afterward.
+The framework contains saved kit and kit-voting support for relevant fight events. Event kits include inventory, armor and offhand state and are separate from the player's normal SMP loadout, which is restored afterward.
 
 ## Spectating
 
-Eliminated players and explicit spectators are managed inside the event system rather than being allowed to freely leave the event environment. The implementation is designed to confine spectators to the event, block normal interaction, and prevent them from using event spectating as an unrestricted teleport mechanism.
+Eliminated players and explicit spectators are constrained inside the event system. The implementation is designed to prevent interaction/escape and prevent spectating from becoming an unrestricted teleport mechanism.
 
-## Event statistics
+## Statistics
 
-`/event stats` opens the event-statistics UI. The statistics system tracks general participation/results and event-specific results, with leaderboard/profile support in the implementation.
-
-Useful concepts for future wiki pages include:
-
-- events played,
-- wins and losses,
-- win ratio,
-- current/best streaks,
-- per-event played/win/loss statistics,
-- leaderboard views.
+`/event stats` implements general and event-specific statistics/leaderboards, including concepts such as events played, wins/losses, win ratio, streaks and per-event records.
 
 ## Rewards
 
-The live config currently specifies a winner reward of **100 economy units**. Reward handling uses the server economy integration and occurs through the controlled end-of-event flow.
+The retained config specifies a winner reward of **100 economy units**. Do not infer additional rewards from old specifications unless current code/config also provides them.
 
-Do not infer extra rewards from old design notes unless they are present in current config/code.
+## Wiki/source rules
 
-## Current deployment caveats
+- **Current production availability:** not installed according to the latest jar manifest.
+- **Implementation reference:** this repository/code.
+- **Next-deployment values:** latest retained `plugins/EnthusiaEvents/` snapshot.
+- Automatic hourly scheduling and chat events remain disabled in that retained config.
+- Fight 2v2 and Sumo 2v2 remain staff-disabled there.
+- Map/config existence does not prove an event is usable; map validation must pass after deployment.
 
-These distinctions are important for future wiki generation:
-
-- **Hourly autostart exists in the plugin but is currently disabled on the SMP.**
-- **Chat events exist in code but are currently disabled on the SMP.**
-- **Fight 2v2 and Sumo 2v2 exist but are currently staff-disabled.**
-- The old specification describes random event starts as discounted, but the current config sets chosen start to 150 and random start to 750.
-- A type being implemented does not guarantee that a usable production map currently exists. `/event start` filters out events without a completed usable map.
-
-For exact deployment/map availability, use the current server snapshot (`enthusia-server-state`) together with the plugin's map validation rather than assuming every implemented event is live.
+Once an EnthusiaEvents jar returns to the production jar manifest, re-check the config and update this status before publishing it as live.
