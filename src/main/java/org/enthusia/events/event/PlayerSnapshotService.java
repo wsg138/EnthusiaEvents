@@ -175,7 +175,7 @@ public final class PlayerSnapshotService {
         player.setFoodLevel(snapshot.foodLevel());
         player.setSaturation(snapshot.saturation());
         player.setExhaustion(snapshot.exhaustion());
-        player.setTotalExperience(snapshot.totalExperience());
+        restoreExperience(player, snapshot);
         player.setGameMode(snapshot.gameMode());
         player.setAllowFlight(snapshot.allowFlight());
         player.setFlying(snapshot.flying());
@@ -187,6 +187,15 @@ public final class PlayerSnapshotService {
         player.setHealth(Math.min(snapshot.health(), player.getMaxHealth()));
         player.updateInventory();
         return true;
+    }
+
+    private void restoreExperience(Player player, PlayerSnapshot snapshot) {
+        player.setTotalExperience(0);
+        player.setLevel(0);
+        player.setExp(0.0F);
+        player.setTotalExperience(Math.max(0, snapshot.totalExperience()));
+        player.setLevel(Math.max(0, snapshot.experienceLevel()));
+        player.setExp(Math.max(0.0F, Math.min(0.999_999F, snapshot.experienceProgress())));
     }
 
     public void restoreMaxHealth(Player player, double maxHealth) {
@@ -229,6 +238,8 @@ public final class PlayerSnapshotService {
                 config.set(path + ".saturation", snapshot.saturation());
                 config.set(path + ".exhaustion", snapshot.exhaustion());
                 config.set(path + ".total-experience", snapshot.totalExperience());
+                config.set(path + ".experience-level", snapshot.experienceLevel());
+                config.set(path + ".experience-progress", snapshot.experienceProgress());
                 config.set(path + ".game-mode", snapshot.gameMode().name());
                 config.set(path + ".potion-effects", new ArrayList<>(snapshot.potionEffects()));
                 config.set(path + ".allow-flight", snapshot.allowFlight());
@@ -277,6 +288,8 @@ public final class PlayerSnapshotService {
                     changed = true;
                     continue;
                 }
+                int totalExperience = config.getInt(path + ".total-experience", 0);
+                ExperienceDisplay experienceDisplay = loadExperienceDisplay(config, path, totalExperience);
                 PlayerSnapshot snapshot = new PlayerSnapshot(
                         location,
                         itemStackArray(config.getList(path + ".inventory"), 41),
@@ -287,7 +300,9 @@ public final class PlayerSnapshotService {
                         config.getInt(path + ".food-level", 20),
                         (float) config.getDouble(path + ".saturation", 5.0D),
                         (float) config.getDouble(path + ".exhaustion", 0.0D),
-                        config.getInt(path + ".total-experience", 0),
+                        totalExperience,
+                        experienceDisplay.level(),
+                        experienceDisplay.progress(),
                         parseGameMode(config.getString(path + ".game-mode", GameMode.SURVIVAL.name())),
                         potionEffects(config.getList(path + ".potion-effects")),
                         config.getBoolean(path + ".allow-flight", false),
@@ -306,6 +321,38 @@ public final class PlayerSnapshotService {
         if (changed) {
             save();
         }
+    }
+
+    private ExperienceDisplay loadExperienceDisplay(YamlConfiguration config, String path, int totalExperience) {
+        if (config.contains(path + ".experience-level") && config.contains(path + ".experience-progress")) {
+            int level = Math.max(0, config.getInt(path + ".experience-level", 0));
+            float progress = (float) config.getDouble(path + ".experience-progress", 0.0D);
+            return new ExperienceDisplay(level, Math.max(0.0F, Math.min(0.999_999F, progress)));
+        }
+        return deriveExperienceDisplay(totalExperience);
+    }
+
+    private ExperienceDisplay deriveExperienceDisplay(int totalExperience) {
+        int remaining = Math.max(0, totalExperience);
+        int level = 0;
+        int required = experienceToNextLevel(level);
+        while (remaining >= required && level < 100_000) {
+            remaining -= required;
+            level++;
+            required = experienceToNextLevel(level);
+        }
+        float progress = required <= 0 ? 0.0F : remaining / (float) required;
+        return new ExperienceDisplay(level, Math.max(0.0F, Math.min(0.999_999F, progress)));
+    }
+
+    private int experienceToNextLevel(int level) {
+        if (level <= 15) {
+            return (2 * level) + 7;
+        }
+        if (level <= 30) {
+            return (5 * level) - 38;
+        }
+        return (9 * level) - 158;
     }
 
     private void purgeExpiredRestored() {
@@ -385,5 +432,8 @@ public final class PlayerSnapshotService {
         } catch (IllegalArgumentException ex) {
             return GameMode.SURVIVAL;
         }
+    }
+
+    private record ExperienceDisplay(int level, float progress) {
     }
 }
