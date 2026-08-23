@@ -28,3 +28,10 @@ jobs:
 
       - name: Compile and run quality checks
         run: mvn --batch-mode --no-transfer-progress verify
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnthusiaEvents-${{ github.sha }}
+          path: target/enthusia-events-1.0.0-SNAPSHOT.jar
+          if-no-files-found: error
