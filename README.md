@@ -4,6 +4,12 @@
 
 EnthusiaEvents is a Paper/Leaf event plugin for running scheduled, voted, private, and staff-started minigame events on Enthusia Network. It manages event joining, map setup, player snapshots, custom scoreboards, map exports, runtime cleanup, and event-specific gameplay logic.
 
+## Documentation
+
+- [`PLAYER_GUIDE.md`](PLAYER_GUIDE.md) — current player-facing mechanics and live Enthusia SMP deployment behavior. Use this as the primary source for future wiki/player documentation.
+- [`Specifications.md`](Specifications.md) — original/development specification; some deployment values and older design statements may no longer match current code/config.
+- [`TESTING.md`](TESTING.md) — implementation/testing coverage.
+
 ## Supported Events
 
 - BedWars
