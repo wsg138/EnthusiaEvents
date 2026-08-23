@@ -54,6 +54,42 @@ public final class BedWarsPolishListener implements Listener {
     }
 
     /**
+     * BedWars is team-last-standing, not player-last-standing. The generic manager only
+     * closes last-standing events when one individual participant remains, which leaves a
+     * winning BedWars team with multiple survivors stuck in ACTIVE forever. This periodic
+     * check closes the match as soon as only one represented team remains.
+     */
+    public void tickWinCondition() {
+        EventSession session = activeBedWarsSession();
+        if (session == null || session.participants().isEmpty()) {
+            return;
+        }
+
+        Set<String> remainingTeams = new LinkedHashSet<>();
+        for (UUID uuid : session.participants()) {
+            String team = normalizedTeam(eventManager.teamFor(uuid));
+            if (team.isBlank()) {
+                return;
+            }
+            remainingTeams.add(team);
+            if (remainingTeams.size() > 1) {
+                return;
+            }
+        }
+
+        if (remainingTeams.size() != 1) {
+            return;
+        }
+        String winningTeam = remainingTeams.iterator().next();
+        List<UUID> winners = session.participants().stream()
+                .filter(uuid -> winningTeam.equals(normalizedTeam(eventManager.teamFor(uuid))))
+                .toList();
+        if (!winners.isEmpty()) {
+            eventManager.endActiveEventDelayed(winners, 60L);
+        }
+    }
+
+    /**
      * Show the shop material in the buyer's team color. The reward id stored on the item
      * remains unchanged, so the normal BedWars purchase handler still owns the transaction.
      */
