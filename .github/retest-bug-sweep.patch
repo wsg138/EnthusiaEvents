@@ -1,0 +1,227 @@
+diff --git a/src/main/java/org/enthusia/events/EnthusiaEventsPlugin.java b/src/main/java/org/enthusia/events/EnthusiaEventsPlugin.java
+index 5aad55c..0000000 100644
+--- a/src/main/java/org/enthusia/events/EnthusiaEventsPlugin.java
++++ b/src/main/java/org/enthusia/events/EnthusiaEventsPlugin.java
+@@ -22,6 +22,7 @@ import org.enthusia.events.event.EventGameplayListener;
+ import org.enthusia.events.event.EventOutcomeService;
+ import org.enthusia.events.event.EventRestrictionsListener;
+ import org.enthusia.events.event.EventRegistry;
++import org.enthusia.events.event.EventSessionHardeningListener;
+ import org.enthusia.events.event.EventScheduler;
+ import org.enthusia.events.event.MapSetupService;
+ import org.enthusia.events.event.MapCopyService;
+@@ -120,8 +121,12 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
+         scheduler = new EventScheduler(this, eventManager);
+         gameplayListener = new EventGameplayListener(this, eventManager);
+         EventGameplaySafetyListener gameplaySafetyListener = new EventGameplaySafetyListener(this, eventManager);
++        EventSessionHardeningListener sessionHardeningListener = new EventSessionHardeningListener(this, eventManager);
+         eventManager.gameplayRuntimeReset(gameplayListener::resetForNewSession);
+-        eventManager.gameplayPreStart(gameplayListener::prepareSession);
++        eventManager.gameplayPreStart(session -> {
++            gameplayListener.prepareSession(session);
++            sessionHardeningListener.prepareSession(session);
++        });
+         setupWizard = new SetupWizard(this, mapSetupService);
+         chatEventService = new ChatEventService(this, economy);
+         specAuditRegistry = new EventSpecAuditRegistry(this, eventRegistry, mapSetupService);
+@@ -143,6 +148,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
+         Bukkit.getPluginManager().registerEvents(new EventRestrictionsListener(this, eventManager, mapSetupService), this);
+         Bukkit.getPluginManager().registerEvents(new EventDurabilityListener(eventManager), this);
+         Bukkit.getPluginManager().registerEvents(gameplaySafetyListener, this);
++        Bukkit.getPluginManager().registerEvents(sessionHardeningListener, this);
+         Bukkit.getPluginManager().registerEvents(gameplayListener, this);
+         Bukkit.getPluginManager().registerEvents(new CapturePlayersJailGuardListener(eventManager), this);
+         Bukkit.getPluginManager().registerEvents(bedWarsPolishListener, this);
+@@ -155,6 +161,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
+         Bukkit.getScheduler().runTaskTimer(this, setupWizard::tickVisuals, 13L, 13L);
+         Bukkit.getScheduler().runTaskTimer(this, bedWarsPolishListener::tickWinCondition, 1L, 1L);
+         Bukkit.getScheduler().runTaskTimer(this, gameplaySafetyListener::tickCtfArmor, 1L, 5L);
++        Bukkit.getScheduler().runTaskTimer(this, sessionHardeningListener::tick, 1L, 20L);
+ 
+         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
+             new EventsPlaceholderExpansion(this, statsService).register();
+diff --git a/src/main/java/org/enthusia/events/kit/KitVoteListener.java b/src/main/java/org/enthusia/events/kit/KitVoteListener.java
+index abe48df..0000000 100644
+--- a/src/main/java/org/enthusia/events/kit/KitVoteListener.java
++++ b/src/main/java/org/enthusia/events/kit/KitVoteListener.java
+@@ -10,8 +10,11 @@ import org.bukkit.event.Listener;
+ import org.bukkit.event.block.Action;
+ import org.bukkit.event.inventory.InventoryClickEvent;
++import org.bukkit.event.inventory.InventoryDragEvent;
++import org.bukkit.event.player.PlayerDropItemEvent;
+ import org.bukkit.event.player.PlayerInteractEvent;
++import org.bukkit.event.player.PlayerSwapHandItemsEvent;
+ import org.bukkit.inventory.Inventory;
+ import org.bukkit.inventory.InventoryHolder;
+ import org.bukkit.inventory.ItemStack;
+@@ -78,10 +81,56 @@ public final class KitVoteListener implements Listener {
+         }
+     }
+ 
+-    @EventHandler
++    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+     public void onInventoryClick(InventoryClickEvent event) {
+         if (event.getInventory().getHolder() instanceof KitPreviewHolder) {
+             event.setCancelled(true);
++            return;
++        }
++        if (!(event.getWhoClicked() instanceof Player player) || !isVotingParticipant(player)) {
++            return;
++        }
++        ItemStack hotbar = event.getHotbarButton() >= 0
++                ? player.getInventory().getItem(event.getHotbarButton())
++                : null;
++        if (isKitVoteItem(event.getCurrentItem()) || isKitVoteItem(event.getCursor())
++                || isKitVoteItem(hotbar) || isKitVoteItem(player.getInventory().getItemInOffHand())) {
++            event.setCancelled(true);
++            player.updateInventory();
++        }
++    }
++
++    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
++    public void onInventoryDrag(InventoryDragEvent event) {
++        if (!(event.getWhoClicked() instanceof Player player) || !isVotingParticipant(player)) {
++            return;
++        }
++        if (isKitVoteItem(event.getOldCursor())) {
++            event.setCancelled(true);
++            player.updateInventory();
++        }
++    }
++
++    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
++    public void onSwapHands(PlayerSwapHandItemsEvent event) {
++        if (!isVotingParticipant(event.getPlayer())) {
++            return;
++        }
++        if (isKitVoteItem(event.getMainHandItem()) || isKitVoteItem(event.getOffHandItem())) {
++            event.setCancelled(true);
++            event.getPlayer().updateInventory();
++        }
++    }
++
++    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
++    public void onDrop(PlayerDropItemEvent event) {
++        if (isVotingParticipant(event.getPlayer()) && isKitVoteItem(event.getItemDrop().getItemStack())) {
++            event.setCancelled(true);
++            event.getPlayer().updateInventory();
+         }
+     }
++
++    private boolean isVotingParticipant(Player player) {
++        EventSession session = eventManager.session();
++        return session != null && isKitVotingPhase(session) && isFightEvent(session.definition().type())
++                && eventManager.isEventPlayer(player.getUniqueId());
++    }
++
++    private boolean isKitVoteItem(ItemStack item) {
++        if (item == null || !item.hasItemMeta()) {
++            return false;
++        }
++        return item.getItemMeta().getPersistentDataContainer().has(kitKey, PersistentDataType.STRING);
++    }
+ 
+     private void openPreview(Player player, String kitName) {
+         EventKitService.EventKit kit = kitService.kit(kitName).orElse(null);
+diff --git a/src/main/java/org/enthusia/events/event/EventManager.java b/src/main/java/org/enthusia/events/event/EventManager.java
+index 7d7b521..0000000 100644
+--- a/src/main/java/org/enthusia/events/event/EventManager.java
++++ b/src/main/java/org/enthusia/events/event/EventManager.java
+@@ -1207,7 +1207,11 @@ public final class EventManager {
+         }
+         if (map != null && !map.spawns().isEmpty()) {
+             List<CompletableFuture<Boolean>> teleports = new ArrayList<>();
+-            List<Map.Entry<String, Location>> spawns = List.copyOf(map.spawns().entrySet());
++            List<Map.Entry<String, Location>> spawns = new ArrayList<>(map.spawns().entrySet());
++            if (session.definition().type() == EventType.FIGHT_FFA
++                    || session.definition().type() == EventType.SUMO_FFA) {
++                java.util.Collections.shuffle(spawns);
++            }
+             int index = 0;
+             for (UUID uuid : session.participants()) {
+                 Player player = Bukkit.getPlayer(uuid);
+diff --git a/src/main/java/org/enthusia/events/event/EventGameplayListener.java b/src/main/java/org/enthusia/events/event/EventGameplayListener.java
+index 1889657..0000000 100644
+--- a/src/main/java/org/enthusia/events/event/EventGameplayListener.java
++++ b/src/main/java/org/enthusia/events/event/EventGameplayListener.java
+@@ -3724,7 +3724,8 @@ public final class EventGameplayListener implements Listener {
+             Location loc = egg.getLocation().clone().subtract(0, 1, 0);
+             Material wool = teamWool(eventManager.teamFor(bedWarsProjectiles.get(egg.getUniqueId())));
+             Block block = loc.getBlock();
+-            if (block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA) {
++            if ((block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA)
++                    && !EventSessionHardeningListener.isBedWarsSpawnProtected(plugin, eventManager.activeMap(), block.getLocation())) {
+                 block.setType(wool, false);
+                 bedWarsPlacedBlocks.add(locationKey(block.getLocation()));
+             }
+@@ -3761,7 +3762,8 @@ public final class EventGameplayListener implements Listener {
+         // Place 5 blocks behind the impact in the direction the egg was traveling
+         for (int i = 0; i < 5; i++) {
+             Block block = loc.getBlock();
+-            if (block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA) {
++            if ((block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA)
++                    && !EventSessionHardeningListener.isBedWarsSpawnProtected(plugin, eventManager.activeMap(), block.getLocation())) {
+                 block.setType(wool, false);
+                 bedWarsPlacedBlocks.add(locationKey(block.getLocation()));
+             }
+@@ -3872,6 +3874,7 @@ public final class EventGameplayListener implements Listener {
+             return;
+         }
+         bedWarsBedsDestroyedByTimer = true;
++        final boolean[] removedLiveBed = {false};
+         EventMap map = session.selectedMap();
+         if (map == null) {
+             return;
+@@ -3882,6 +3885,7 @@ public final class EventGameplayListener implements Listener {
+             }
+             String team = lower.substring("bed-".length());
+             breakBedBlocksNear(location);
++            removedLiveBed[0] |= !brokenBedTeams.contains(team);
+             if (!brokenBedTeams.contains(team)) {
+                 brokenBedTeams.add(team);
+             }
+@@ -3889,9 +3893,11 @@ public final class EventGameplayListener implements Listener {
+             eventManager.setRuntimeScoreboardValue("bedwars-bed-" + team, "false");
+         });
+-        eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED
+-                + "All beds have been destroyed. Every death is now final.");
+-        playForParticipants(session, Sound.ENTITY_WITHER_SPAWN, 0.8F, 1.2F);
++        if (removedLiveBed[0]) {
++            eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED
++                    + "Deathmatch has started. All remaining beds were removed; every death is now final.");
++            playForParticipants(session, Sound.ENTITY_WITHER_SPAWN, 0.8F, 1.2F);
++        }
+     }
+@@ -4764,9 +4770,9 @@ public final class EventGameplayListener implements Listener {
+             case "WOOL" -> shopItem(player, teamWool(player == null ? "" : eventManager.teamFor(player.getUniqueId())),
+                     16, ChatColor.WHITE + "Wool", 4, Material.IRON_INGOT,
+                     List.of("Great for bridging across islands.", "Turns into your team's color."), itemId, isQuickBuy);
+-            case "HARDENED_CLAY" -> shopItem(player, Material.TERRACOTTA,
+-                    16, ChatColor.GOLD + "Hardened Clay", 12, Material.IRON_INGOT,
+-                    List.of("Basic block to defend your bed."), itemId, isQuickBuy);
++            case "HARDENED_CLAY" -> shopItem(player, teamConcrete(player == null ? "" : eventManager.teamFor(player.getUniqueId())),
++                    16, ChatColor.GOLD + "Concrete", 12, Material.IRON_INGOT,
++                    List.of("Team-colored block to defend your bed."), itemId, isQuickBuy);
+             case "BLAST_PROOF_GLASS" -> shopItem(player, Material.GLASS,
+                     4, ChatColor.AQUA + "Blast-Proof Glass", 12, Material.IRON_INGOT,
+                     List.of("Immune to explosions."), itemId, isQuickBuy);
+@@ -5111,6 +5117,18 @@ public final class EventGameplayListener implements Listener {
+         };
+     }
+ 
++    private Material teamConcrete(String team) {
++        return switch (team == null ? "" : team.toLowerCase(Locale.ROOT)) {
++            case "1", "red" -> Material.RED_CONCRETE;
++            case "2", "blue" -> Material.BLUE_CONCRETE;
++            case "3", "green" -> Material.GREEN_CONCRETE;
++            case "4", "yellow" -> Material.YELLOW_CONCRETE;
++            case "5", "orange" -> Material.ORANGE_CONCRETE;
++            case "6", "purple" -> Material.PURPLE_CONCRETE;
++            case "7", "cyan" -> Material.CYAN_CONCRETE;
++            default -> Material.WHITE_CONCRETE;
++        };
++    }
++
+     private Inventory createBedWarsUpgradeShop(Player player) {
+         Inventory inventory = Bukkit.createInventory(null, 54, BEDWARS_UPGRADE_SHOP_TITLE);
+         // Upgrades on the left
