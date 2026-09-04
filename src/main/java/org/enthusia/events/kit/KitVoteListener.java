@@ -10,7 +10,10 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -86,11 +89,66 @@ public final class KitVoteListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onInventoryClick(InventoryClickEvent event) {
         if (event.getInventory().getHolder() instanceof KitPreviewHolder) {
             event.setCancelled(true);
+            return;
         }
+        if (!(event.getWhoClicked() instanceof Player player) || !isVotingParticipant(player)) {
+            return;
+        }
+        ItemStack hotbar = event.getHotbarButton() >= 0
+                ? player.getInventory().getItem(event.getHotbarButton())
+                : null;
+        if (isKitVoteItem(event.getCurrentItem()) || isKitVoteItem(event.getCursor())
+                || isKitVoteItem(hotbar) || isKitVoteItem(player.getInventory().getItemInOffHand())) {
+            event.setCancelled(true);
+            player.updateInventory();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player) || !isVotingParticipant(player)) {
+            return;
+        }
+        if (isKitVoteItem(event.getOldCursor())) {
+            event.setCancelled(true);
+            player.updateInventory();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onSwapHands(PlayerSwapHandItemsEvent event) {
+        if (!isVotingParticipant(event.getPlayer())) {
+            return;
+        }
+        if (isKitVoteItem(event.getMainHandItem()) || isKitVoteItem(event.getOffHandItem())) {
+            event.setCancelled(true);
+            event.getPlayer().updateInventory();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onDrop(PlayerDropItemEvent event) {
+        if (isVotingParticipant(event.getPlayer()) && isKitVoteItem(event.getItemDrop().getItemStack())) {
+            event.setCancelled(true);
+            event.getPlayer().updateInventory();
+        }
+    }
+
+    private boolean isVotingParticipant(Player player) {
+        EventSession session = eventManager.session();
+        return session != null && isKitVotingPhase(session) && isFightEvent(session.definition().type())
+                && eventManager.isEventPlayer(player.getUniqueId());
+    }
+
+    private boolean isKitVoteItem(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return false;
+        }
+        return item.getItemMeta().getPersistentDataContainer().has(kitKey, PersistentDataType.STRING);
     }
 
     private void openPreview(Player player, String kitName) {

@@ -22,6 +22,7 @@ import org.enthusia.events.event.EventGameplayListener;
 import org.enthusia.events.event.EventOutcomeService;
 import org.enthusia.events.event.EventRestrictionsListener;
 import org.enthusia.events.event.EventRegistry;
+import org.enthusia.events.event.EventSessionHardeningListener;
 import org.enthusia.events.event.EventScheduler;
 import org.enthusia.events.event.MapSetupService;
 import org.enthusia.events.event.MapCopyService;
@@ -121,8 +122,12 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         scheduler = new EventScheduler(this, eventManager);
         gameplayListener = new EventGameplayListener(this, eventManager);
         EventGameplaySafetyListener gameplaySafetyListener = new EventGameplaySafetyListener(this, eventManager);
+        EventSessionHardeningListener sessionHardeningListener = new EventSessionHardeningListener(this, eventManager);
         eventManager.gameplayRuntimeReset(gameplayListener::resetForNewSession);
-        eventManager.gameplayPreStart(gameplayListener::prepareSession);
+        eventManager.gameplayPreStart(session -> {
+            gameplayListener.prepareSession(session);
+            sessionHardeningListener.prepareSession(session);
+        });
         setupWizard = new SetupWizard(this, mapSetupService);
         chatEventService = new ChatEventService(this, economy);
         specAuditRegistry = new EventSpecAuditRegistry(this, eventRegistry, mapSetupService);
@@ -141,6 +146,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new EventRestrictionsListener(this, eventManager, mapSetupService), this);
         Bukkit.getPluginManager().registerEvents(new EventDurabilityListener(eventManager), this);
         Bukkit.getPluginManager().registerEvents(gameplaySafetyListener, this);
+        Bukkit.getPluginManager().registerEvents(sessionHardeningListener, this);
         Bukkit.getPluginManager().registerEvents(gameplayListener, this);
         Bukkit.getPluginManager().registerEvents(new CapturePlayersJailGuardListener(eventManager), this);
         Bukkit.getPluginManager().registerEvents(bedWarsPolishListener, this);
@@ -153,6 +159,7 @@ public final class EnthusiaEventsPlugin extends JavaPlugin {
         Bukkit.getScheduler().runTaskTimer(this, setupWizard::tickVisuals, 13L, 13L);
         Bukkit.getScheduler().runTaskTimer(this, bedWarsPolishListener::tickWinCondition, 1L, 1L);
         Bukkit.getScheduler().runTaskTimer(this, gameplaySafetyListener::tickCtfArmor, 1L, 5L);
+        Bukkit.getScheduler().runTaskTimer(this, sessionHardeningListener::tick, 1L, 20L);
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             new EventsPlaceholderExpansion(this, statsService).register();

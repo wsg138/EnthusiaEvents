@@ -3724,7 +3724,8 @@ public final class EventGameplayListener implements Listener {
             Location loc = egg.getLocation().clone().subtract(0, 1, 0);
             Material wool = teamWool(eventManager.teamFor(bedWarsProjectiles.get(egg.getUniqueId())));
             Block block = loc.getBlock();
-            if (block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA) {
+            if ((block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA)
+                    && !EventSessionHardeningListener.isBedWarsSpawnProtected(plugin, eventManager.activeMap(), block.getLocation())) {
                 block.setType(wool, false);
                 bedWarsPlacedBlocks.add(locationKey(block.getLocation()));
             }
@@ -3761,7 +3762,8 @@ public final class EventGameplayListener implements Listener {
         // Place 5 blocks behind the impact in the direction the egg was traveling
         for (int i = 0; i < 5; i++) {
             Block block = loc.getBlock();
-            if (block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA) {
+            if ((block.getType().isAir() || block.getType() == Material.WATER || block.getType() == Material.LAVA)
+                    && !EventSessionHardeningListener.isBedWarsSpawnProtected(plugin, eventManager.activeMap(), block.getLocation())) {
                 block.setType(wool, false);
                 bedWarsPlacedBlocks.add(locationKey(block.getLocation()));
             }
@@ -3869,6 +3871,7 @@ public final class EventGameplayListener implements Listener {
             return;
         }
         bedWarsBedsDestroyedByTimer = true;
+        final boolean[] removedLiveBed = {false};
         EventMap map = session.selectedMap();
         if (map == null) {
             return;
@@ -3880,14 +3883,17 @@ public final class EventGameplayListener implements Listener {
             }
             String team = lower.substring("bed-".length());
             breakBedBlocksNear(location);
+            removedLiveBed[0] |= !brokenBedTeams.contains(team);
             if (!brokenBedTeams.contains(team)) {
                 brokenBedTeams.add(team);
             }
             eventManager.setRuntimeScoreboardValue("bedwars-bed-" + team, "false");
         });
-        eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED
-                + "All beds have been destroyed. Every death is now final.");
-        playForParticipants(session, Sound.ENTITY_WITHER_SPAWN, 0.8F, 1.2F);
+        if (removedLiveBed[0]) {
+            eventManager.messageEventPlayers(ChatColor.GOLD + "[Events] " + ChatColor.RED
+                    + "Deathmatch has started. All remaining beds were removed; every death is now final.");
+            playForParticipants(session, Sound.ENTITY_WITHER_SPAWN, 0.8F, 1.2F);
+        }
     }
 
     private void breakBedBlocksNear(Location location) {
@@ -4846,9 +4852,9 @@ public final class EventGameplayListener implements Listener {
             case "WOOL" -> shopItem(player, teamWool(player == null ? "" : eventManager.teamFor(player.getUniqueId())),
                     16, ChatColor.WHITE + "Wool", 4, Material.IRON_INGOT,
                     List.of("Great for bridging across islands.", "Turns into your team's color."), itemId, isQuickBuy);
-            case "HARDENED_CLAY" -> shopItem(player, Material.TERRACOTTA,
-                    16, ChatColor.GOLD + "Hardened Clay", 12, Material.IRON_INGOT,
-                    List.of("Basic block to defend your bed."), itemId, isQuickBuy);
+            case "HARDENED_CLAY" -> shopItem(player, teamConcrete(player == null ? "" : eventManager.teamFor(player.getUniqueId())),
+                    16, ChatColor.GOLD + "Concrete", 12, Material.IRON_INGOT,
+                    List.of("Team-colored block to defend your bed."), itemId, isQuickBuy);
             case "BLAST_PROOF_GLASS" -> shopItem(player, Material.GLASS,
                     4, ChatColor.AQUA + "Blast-Proof Glass", 12, Material.IRON_INGOT,
                     List.of("Immune to explosions."), itemId, isQuickBuy);
@@ -5109,6 +5115,19 @@ public final class EventGameplayListener implements Listener {
             case "6", "purple" -> Material.PURPLE_WOOL;
             case "7", "cyan" -> Material.CYAN_WOOL;
             default -> Material.WHITE_WOOL;
+        };
+    }
+
+    private Material teamConcrete(String team) {
+        return switch (team == null ? "" : team.toLowerCase(Locale.ROOT)) {
+            case "1", "red" -> Material.RED_CONCRETE;
+            case "2", "blue" -> Material.BLUE_CONCRETE;
+            case "3", "green" -> Material.GREEN_CONCRETE;
+            case "4", "yellow" -> Material.YELLOW_CONCRETE;
+            case "5", "orange" -> Material.ORANGE_CONCRETE;
+            case "6", "purple" -> Material.PURPLE_CONCRETE;
+            case "7", "cyan" -> Material.CYAN_CONCRETE;
+            default -> Material.WHITE_CONCRETE;
         };
     }
 

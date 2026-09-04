@@ -1199,7 +1199,11 @@ public final class EventManager {
         }
         if (map != null && !map.spawns().isEmpty()) {
             List<CompletableFuture<Boolean>> teleports = new ArrayList<>();
-            List<Map.Entry<String, Location>> spawns = List.copyOf(map.spawns().entrySet());
+            List<Map.Entry<String, Location>> spawns = new ArrayList<>(map.spawns().entrySet());
+            if (session.definition().type() == EventType.FIGHT_FFA
+                    || session.definition().type() == EventType.SUMO_FFA) {
+                java.util.Collections.shuffle(spawns);
+            }
             int index = 0;
             for (UUID uuid : session.participants()) {
                 Player player = Bukkit.getPlayer(uuid);
