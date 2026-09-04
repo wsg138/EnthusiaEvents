@@ -123,7 +123,7 @@ public final class EventSessionHardeningListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onBedWarsBlockPlace(BlockPlaceEvent event) {
         EventSession session = activeBedWarsSession();
         if (session == null || !session.participants().contains(event.getPlayer().getUniqueId())) {
@@ -135,7 +135,7 @@ public final class EventSessionHardeningListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onBedWarsBucketEmpty(PlayerBucketEmptyEvent event) {
         EventSession session = activeBedWarsSession();
         if (session == null || !session.participants().contains(event.getPlayer().getUniqueId())) {
